@@ -133,8 +133,11 @@ class AppController(QObject):
         self.current_lyrics = None
         self.position_tracker.update(now_playing.position_ms, now_playing.is_playing, now_playing.duration_ms)
         self.overlay.set_track_info(now_playing.title, now_playing.artist)
+        self.overlay.set_approximate(False)  # reset until lyrics arrive
         self.control_bar.set_playing(now_playing.is_playing)
-        self.lyrics_fetcher.request(now_playing.title, now_playing.artist)
+        self.lyrics_fetcher.request(
+            now_playing.title, now_playing.artist, now_playing.duration_ms
+        )
 
     def _on_state_updated(self, now_playing: NowPlaying):
         self.current_now_playing = now_playing
@@ -154,6 +157,7 @@ class AppController(QObject):
             if not result.synced and self.current_now_playing.duration_ms:
                 result = _spread_evenly(result, self.current_now_playing.duration_ms)
             self.current_lyrics = result
+            self.overlay.set_approximate(not result.synced)
             self.overlay.set_lyrics(result)
 
     def _on_lyrics_failed(self, title, _artist):

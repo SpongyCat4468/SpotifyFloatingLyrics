@@ -65,6 +65,9 @@ class SettingsWindow(QWidget):
 
         self._drag_offset: Optional[QPoint] = None
         self._build_ui()
+        # Size to exactly fit the content so there's no dead space below the
+        # last control, rather than the fixed height above.
+        self.resize(320, self.card.sizeHint().height())
         self._move_to_default_position()
 
     def _build_ui(self):
@@ -121,8 +124,6 @@ class SettingsWindow(QWidget):
         self.controls_checkbox = QCheckBox("Show playback controls")
         self.controls_checkbox.toggled.connect(self.controls_toggled)
         layout.addWidget(self.controls_checkbox)
-
-        layout.addStretch()
 
         self.close_button = QLabel("✕", self)
         self.close_button.setStyleSheet("color: rgba(255,255,255,140);")
