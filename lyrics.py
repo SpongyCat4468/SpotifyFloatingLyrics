@@ -79,6 +79,7 @@ def _lrclib_lookup(title: str, artist: str) -> Optional["LyricsResult"]:
             params={"track_name": title, "artist_name": artist},
             timeout=10,
         )
+        # print(response.json())
         response.raise_for_status()
         candidates = response.json()
     except Exception:

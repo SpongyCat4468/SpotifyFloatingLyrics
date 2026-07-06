@@ -176,6 +176,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     controller = AppController()
+    controller.overlay.set_movable(True)
     controller.start()
 
     sys.exit(app.exec())

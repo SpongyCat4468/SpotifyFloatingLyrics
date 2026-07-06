@@ -7,7 +7,7 @@ with whatever's underneath it.
 import ctypes
 from typing import Optional
 
-from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QFont, QFontMetrics, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QFrame, QGraphicsObject, QGraphicsScene, QGraphicsView, QLabel, QVBoxLayout, QWidget
 
@@ -205,6 +205,9 @@ class OverlayWindow(QWidget):
         }
 
         self._slide_group: Optional[QParallelAnimationGroup] = None
+        self._bold_timer: Optional[QTimer] = None
+        self._normal_font = QFont()
+        self._bold_font = QFont()
 
     def set_scale(self, scale_percent: int):
         self._scale_percent = scale_percent
@@ -220,12 +223,14 @@ class OverlayWindow(QWidget):
         self.title_label.setFont(title_font)
 
         lyric_pt = max(1, round(_BASE_LYRIC_PT * factor))
-        lyric_font = QFont("Segoe UI", lyric_pt)
+        self._normal_font = QFont("Segoe UI", lyric_pt)
+        self._bold_font = QFont("Segoe UI", lyric_pt)
+        self._bold_font.setBold(True)
         for item in self._items:
-            item.setFont(lyric_font)
+            item.setFont(self._normal_font)
 
         row_padding = round(_BASE_ROW_PADDING * factor)
-        self._row_height = QFontMetrics(lyric_font).height() * 2 + row_padding
+        self._row_height = QFontMetrics(self._normal_font).height() * 2 + row_padding
 
         width = round(_BASE_WIDTH * factor)
         self._row_width = width - 2 * side_margin
@@ -348,14 +353,28 @@ class OverlayWindow(QWidget):
             next_text = self._lines[index + 1][1] if index + 1 < len(self._lines) else ""
             self._reset_lyric_rows(prev_text, current_text, next_text)
 
+    def _stop_scroll_animation(self):
+        if self._slide_group is not None:
+            self._slide_group.stop()
+            self._slide_group = None
+        if self._bold_timer is not None:
+            self._bold_timer.stop()
+            self._bold_timer = None
+
+    def _mid_scroll_bold_switch(self):
+        self._bold_timer = None
+        # item[1] is sliding away from current slot → lose bold
+        self._items[1].setFont(self._normal_font)
+        # item[2] is arriving at current slot → gain bold
+        self._items[2].setFont(self._bold_font)
+
     def _scroll_to_next(self):
         idx = self._current_index
         new_prev_text = self._lines[idx - 1][1] if idx - 1 >= 0 else ""
         new_current_text = self._lines[idx][1]
         incoming_text = self._lines[idx + 1][1] if idx + 1 < len(self._lines) else ""
 
-        if self._slide_group is not None:
-            self._slide_group.stop()
+        self._stop_scroll_animation()
         # Any interrupted mid-flight animation leaves items off their rest
         # state; snap back to rest first so the new slide starts clean.
         self._layout_lyrics_labels()
@@ -420,21 +439,33 @@ class OverlayWindow(QWidget):
         self._slide_group = group
         group.start()
 
+        # Switch bold at the midpoint of the scroll so the arriving lyric
+        # turns bold just as it settles into the current slot.
+        self._bold_timer = QTimer(self)
+        self._bold_timer.setSingleShot(True)
+        self._bold_timer.timeout.connect(self._mid_scroll_bold_switch)
+        self._bold_timer.start(_SLIDE_MS // 4)
+
     def _finish_scroll(self, prev_text: str, current_text: str, next_text: str):
         self._items[0].setText(prev_text)
+        self._items[0].setFont(self._normal_font)
         self._items[1].setText(current_text)
+        self._items[1].setFont(self._bold_font)
         self._items[2].setText(next_text)
+        self._items[2].setFont(self._normal_font)
         self._items[3].setText("")
         self._items[3].setOpacity(0.0)
 
         self._layout_lyrics_labels()
 
     def _reset_lyric_rows(self, prev_text: str, current_text: str, next_text: str):
-        if self._slide_group is not None:
-            self._slide_group.stop()
+        self._stop_scroll_animation()
         self._items[0].setText(prev_text)
+        self._items[0].setFont(self._normal_font)
         self._items[1].setText(current_text)
+        self._items[1].setFont(self._bold_font)
         self._items[2].setText(next_text)
+        self._items[2].setFont(self._normal_font)
         self._items[3].setText("")
         self._items[3].setOpacity(0.0)
         self._layout_lyrics_labels()
