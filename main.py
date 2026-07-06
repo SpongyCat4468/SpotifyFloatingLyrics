@@ -135,7 +135,9 @@ class AppController(QObject):
         self.overlay.set_track_info(now_playing.title, now_playing.artist)
         self.overlay.set_approximate(False)  # reset until lyrics arrive
         self.control_bar.set_playing(now_playing.is_playing)
-        self.lyrics_fetcher.request(now_playing.title, now_playing.artist)
+        self.lyrics_fetcher.request(
+            now_playing.title, now_playing.artist, now_playing.duration_ms
+        )
 
     def _on_state_updated(self, now_playing: NowPlaying):
         self.current_now_playing = now_playing
