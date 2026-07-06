@@ -7,13 +7,15 @@ with whatever's underneath it.
 import ctypes
 from typing import Optional
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QParallelAnimationGroup, Qt, Signal
-from PySide6.QtGui import QFont, QFontMetrics, QMouseEvent
-from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QFont, QFontMetrics, QMouseEvent, QPainter
+from PySide6.QtWidgets import QApplication, QFrame, QGraphicsObject, QGraphicsScene, QGraphicsView, QLabel, QVBoxLayout, QWidget
 
 _SLIDE_MS = 320
 _DIM_OPACITY = 0.45
 _BRIGHT_OPACITY = 1.0
+_DIM_SCALE = 0.85
+_BRIGHT_SCALE = 1.0
 
 # All sizes are derived from these at scale=100 (see set_scale), so the
 # whole overlay grows/shrinks together as one consistent ratio. prev,
@@ -56,6 +58,48 @@ def _set_native_click_through(hwnd: int, click_through: bool):
     else:
         style &= ~_WS_EX_TRANSPARENT
     _user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, style)
+
+
+class LyricItem(QGraphicsObject):
+    """A single lyric line rendered in the QGraphicsScene.
+
+    Position, opacity, and scale are all native QGraphicsItem properties
+    exposed through QGraphicsObject, so they can be animated directly with
+    QPropertyAnimation(b"pos"), (b"opacity"), (b"scale") — no per-property
+    boilerplate needed.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._text = ""
+        self._font = QFont()
+        self._bounding_rect = QRectF()
+
+    def setText(self, text: str):
+        self._text = text
+        self.update()
+
+    def setFont(self, font: QFont):
+        self._font = font
+        self.update()
+
+    def setItemGeometry(self, w: float, h: float):
+        self.prepareGeometryChange()
+        self._bounding_rect = QRectF(-w / 2, -h / 2, w, h)
+
+    def boundingRect(self):
+        return self._bounding_rect
+
+    def paint(self, painter, option, widget=None):
+        if not self._text or self._bounding_rect.isEmpty():
+            return
+        painter.setFont(self._font)
+        painter.setPen(Qt.white)
+        painter.drawText(
+            self._bounding_rect,
+            Qt.AlignCenter | Qt.TextWordWrap,
+            self._text,
+        )
 
 
 class OverlayWindow(QWidget):
@@ -126,52 +170,44 @@ class OverlayWindow(QWidget):
         self.title_label.setStyleSheet("color: rgba(255,255,255,140);")
         self._card_layout.addWidget(self.title_label)
 
-        # prev/current/next/incoming are positioned manually (not via a
-        # layout) inside this plain clipping container so they can be slid
-        # vertically as one unit to scroll. incoming starts just below the
-        # visible area and slides into "next" in lockstep with the others,
-        # so the whole transition is a single continuous motion. All four
-        # share the same row height/font size and wrap to a second line if
-        # needed, instead of truncating with an ellipsis.
-        self.lyrics_area = QWidget(self.card)
-        self._card_layout.addWidget(self.lyrics_area)
+        # prev/current/next/incoming are rendered as QGraphicsItems inside a
+        # QGraphicsScene/QGraphicsView.  Each item exposes pos / opacity /
+        # scale as animatable Qt properties so scrolling can slide, fade,
+        # and resize all four lines simultaneously.
+        self._scene = QGraphicsScene(self)
+        self._view = QGraphicsView(self._scene, self.card)
+        self._view.setRenderHint(QPainter.Antialiasing | QPainter.TextAntialiasing)
+        self._view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._view.setFrameShape(QFrame.NoFrame)
+        self._view.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._view.setBackgroundBrush(QBrush(Qt.NoBrush))
+        self._view.setStyleSheet("background: transparent; border: none;")
+        self._view.setAutoFillBackground(False)
+        self._view.viewport().setAutoFillBackground(False)
+        self._card_layout.addWidget(self._view)
 
-        self.prev_label = self._make_row_label()
-        self.current_label = self._make_row_label()
-        self.next_label = self._make_row_label()
-        self.incoming_label = self._make_row_label()
+        # Four items: 0=prev, 1=current, 2=next, 3=incoming.
+        self._items = [LyricItem() for _ in range(4)]
+        for i, item in enumerate(self._items):
+            self._scene.addItem(item)
+            item.setZValue(i)
 
         self._rest_opacity = {
-            self.prev_label: _DIM_OPACITY,
-            self.current_label: _BRIGHT_OPACITY,
-            self.next_label: _DIM_OPACITY,
+            0: _DIM_OPACITY,
+            1: _BRIGHT_OPACITY,
+            2: _DIM_OPACITY,
         }
-        self._effects = {
-            label: QGraphicsOpacityEffect(label)
-            for label in (self.prev_label, self.current_label, self.next_label, self.incoming_label)
+        self._rest_scale = {
+            0: _DIM_SCALE,
+            1: _BRIGHT_SCALE,
+            2: _DIM_SCALE,
         }
-        for label, effect in self._effects.items():
-            label.setGraphicsEffect(effect)
-            effect.setOpacity(self._rest_opacity.get(label, 0.0))
 
-        self.incoming_label.hide()
         self._slide_group: Optional[QParallelAnimationGroup] = None
-
-        # Rows overlap slightly mid-slide (2-line-tall boxes moving through
-        # each other's space); fixing the stacking order so each label
-        # paints above the one before it in the prev->current->next->
-        # incoming chain means the brightening label is always drawn on top
-        # of the dimming one where they overlap.
-        self.prev_label.raise_()
-        self.current_label.raise_()
-        self.next_label.raise_()
-        self.incoming_label.raise_()
-
-    def _make_row_label(self) -> QLabel:
-        label = QLabel("", self.lyrics_area)
-        label.setAlignment(Qt.AlignCenter)
-        label.setWordWrap(True)
-        return label
+        self._bold_timer: Optional[QTimer] = None
+        self._normal_font = QFont()
+        self._bold_font = QFont()
 
     def set_scale(self, scale_percent: int):
         self._scale_percent = scale_percent
@@ -184,34 +220,31 @@ class OverlayWindow(QWidget):
         self._card_layout.setSpacing(spacing)
 
         title_font = QFont("Segoe UI", max(1, round(_BASE_TITLE_PT * factor)))
-        lyric_pt = max(1, round(_BASE_LYRIC_PT * factor))
-        self._dim_font = QFont("Segoe UI", lyric_pt)
-        self._bright_font = QFont("Segoe UI", lyric_pt, QFont.Bold)
         self.title_label.setFont(title_font)
-        self.prev_label.setFont(self._dim_font)
-        self.next_label.setFont(self._dim_font)
-        self.incoming_label.setFont(self._dim_font)
-        self.current_label.setFont(self._bright_font)
+
+        lyric_pt = max(1, round(_BASE_LYRIC_PT * factor))
+        self._normal_font = QFont("Segoe UI", lyric_pt)
+        self._bold_font = QFont("Segoe UI", lyric_pt)
+        self._bold_font.setBold(True)
+        for item in self._items:
+            item.setFont(self._normal_font)
 
         row_padding = round(_BASE_ROW_PADDING * factor)
-        self._row_height = QFontMetrics(self._bright_font).height() * 2 + row_padding
-
-        self._rest_y = {
-            self.prev_label: 0,
-            self.current_label: self._row_height,
-            self.next_label: self._row_height * 2,
-        }
-        self.lyrics_area.setFixedHeight(self._row_height * 3)
+        self._row_height = QFontMetrics(self._normal_font).height() * 2 + row_padding
 
         width = round(_BASE_WIDTH * factor)
         self._row_width = width - 2 * side_margin
-        self._layout_lyrics_labels()
+        for item in self._items:
+            item.setItemGeometry(self._row_width, self._row_height)
+
+        self._view.setFixedHeight(self._row_height * 3)
+        self._scene.setSceneRect(0, 0, self._row_width, self._row_height * 3)
 
         height = (
             v_margin * 2
             + QFontMetrics(title_font).height()
             + spacing
-            + self.lyrics_area.height()
+            + self._view.height()
         )
         old_center = self.geometry().center() if self.isVisible() else None
         self.resize(width, height)
@@ -251,8 +284,21 @@ class OverlayWindow(QWidget):
         )
 
     def _layout_lyrics_labels(self):
-        for label, rest_y in self._rest_y.items():
-            label.setGeometry(0, rest_y, self._row_width, self._row_height)
+        """Snap all items to their rest positions / opacity / scale."""
+        cx = self._row_width / 2
+        centers_y = [
+            self._row_height / 2,
+            self._row_height / 2 + self._row_height,
+            self._row_height / 2 + 2 * self._row_height,
+        ]
+        for i, item in enumerate(self._items[:3]):
+            item.setPos(QPointF(cx, centers_y[i]))
+            item.setScale(self._rest_scale.get(i, _DIM_SCALE))
+            item.setOpacity(self._rest_opacity.get(i, _DIM_OPACITY))
+        # incoming sits just below the visible area, hidden.
+        self._items[3].setPos(QPointF(cx, self._row_height / 2 + 3 * self._row_height))
+        self._items[3].setScale(0.0)
+        self._items[3].setOpacity(0.0)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -307,78 +353,119 @@ class OverlayWindow(QWidget):
             next_text = self._lines[index + 1][1] if index + 1 < len(self._lines) else ""
             self._reset_lyric_rows(prev_text, current_text, next_text)
 
+    def _stop_scroll_animation(self):
+        if self._slide_group is not None:
+            self._slide_group.stop()
+            self._slide_group = None
+        if self._bold_timer is not None:
+            self._bold_timer.stop()
+            self._bold_timer = None
+
+    def _mid_scroll_bold_switch(self):
+        self._bold_timer = None
+        # item[1] is sliding away from current slot → lose bold
+        self._items[1].setFont(self._normal_font)
+        # item[2] is arriving at current slot → gain bold
+        self._items[2].setFont(self._bold_font)
+
     def _scroll_to_next(self):
         idx = self._current_index
         new_prev_text = self._lines[idx - 1][1] if idx - 1 >= 0 else ""
         new_current_text = self._lines[idx][1]
         incoming_text = self._lines[idx + 1][1] if idx + 1 < len(self._lines) else ""
 
-        if self._slide_group is not None:
-            self._slide_group.stop()
-        # Any interrupted mid-flight animation leaves labels off their rest
-        # position; snap back to rest first so the new slide starts clean
-        # instead of jumping from wherever the old one was cut off.
+        self._stop_scroll_animation()
+        # Any interrupted mid-flight animation leaves items off their rest
+        # state; snap back to rest first so the new slide starts clean.
         self._layout_lyrics_labels()
-        for label, opacity in self._rest_opacity.items():
-            self._effects[label].setOpacity(opacity)
 
-        chain = [self.prev_label, self.current_label, self.next_label, self.incoming_label]
-        incoming_row_y = self._row_height * 3
+        chain = [0, 1, 2, 3]
+        cx = self._row_width / 2
+        rest_centers_y = [
+            self._row_height / 2,
+            self._row_height / 2 + self._row_height,
+            self._row_height / 2 + 2 * self._row_height,
+            self._row_height / 2 + 3 * self._row_height,
+        ]
 
-        self.incoming_label.setText(incoming_text)
-        self.incoming_label.setGeometry(0, incoming_row_y, self._row_width, self._row_height)
-        self._effects[self.incoming_label].setOpacity(0.0)
-        self.incoming_label.show()
-
-        rest_y_chain = [0, self._row_height, self._row_height * 2, incoming_row_y]
         opacity_chain = [
             (_DIM_OPACITY, 0.0),
             (_BRIGHT_OPACITY, _DIM_OPACITY),
             (_DIM_OPACITY, _BRIGHT_OPACITY),
             (0.0, _DIM_OPACITY),
         ]
+        scale_chain = [
+            (_DIM_SCALE, 0.0),
+            (_BRIGHT_SCALE, _DIM_SCALE),
+            (_DIM_SCALE, _BRIGHT_SCALE),
+            (0.0, _DIM_SCALE),
+        ]
+
+        # Place incoming just below the visible area.
+        self._items[3].setText(incoming_text)
+        self._items[3].setPos(QPointF(cx, rest_centers_y[3]))
+        self._items[3].setScale(0.0)
+        self._items[3].setOpacity(0.0)
 
         group = QParallelAnimationGroup(self)
-        for i, label in enumerate(chain):
-            start_y = rest_y_chain[i]
-            end_y = rest_y_chain[i - 1] if i > 0 else start_y - self._row_height
+        for i in chain:
+            start_y = rest_centers_y[i]
+            end_y = rest_centers_y[i - 1] if i > 0 else start_y - self._row_height
             start_opacity, end_opacity = opacity_chain[i]
+            start_scale, end_scale = scale_chain[i]
 
-            pos_anim = QPropertyAnimation(label, b"pos", group)
+            pos_anim = QPropertyAnimation(self._items[i], b"pos", group)
             pos_anim.setDuration(_SLIDE_MS)
-            pos_anim.setStartValue(QPoint(0, start_y))
-            pos_anim.setEndValue(QPoint(0, end_y))
+            pos_anim.setStartValue(QPointF(cx, start_y))
+            pos_anim.setEndValue(QPointF(cx, end_y))
             pos_anim.setEasingCurve(QEasingCurve.OutCubic)
             group.addAnimation(pos_anim)
 
-            fade_anim = QPropertyAnimation(self._effects[label], b"opacity", group)
+            fade_anim = QPropertyAnimation(self._items[i], b"opacity", group)
             fade_anim.setDuration(_SLIDE_MS)
             fade_anim.setStartValue(start_opacity)
             fade_anim.setEndValue(end_opacity)
             fade_anim.setEasingCurve(QEasingCurve.OutCubic)
             group.addAnimation(fade_anim)
 
-        group.finished.connect(lambda: self._finish_scroll(new_prev_text, new_current_text, incoming_text))
+            scale_anim = QPropertyAnimation(self._items[i], b"scale", group)
+            scale_anim.setDuration(_SLIDE_MS)
+            scale_anim.setStartValue(start_scale)
+            scale_anim.setEndValue(end_scale)
+            scale_anim.setEasingCurve(QEasingCurve.OutCubic)
+            group.addAnimation(scale_anim)
+
+        group.finished.connect(lambda np=new_prev_text, nc=new_current_text, ni=incoming_text: self._finish_scroll(np, nc, ni))
         self._slide_group = group
         group.start()
 
+        # Switch bold at the midpoint of the scroll so the arriving lyric
+        # turns bold just as it settles into the current slot.
+        self._bold_timer = QTimer(self)
+        self._bold_timer.setSingleShot(True)
+        self._bold_timer.timeout.connect(self._mid_scroll_bold_switch)
+        self._bold_timer.start(_SLIDE_MS // 4)
+
     def _finish_scroll(self, prev_text: str, current_text: str, next_text: str):
-        self.prev_label.setText(prev_text)
-        self.current_label.setText(current_text)
-        self.next_label.setText(next_text)
-        self.incoming_label.hide()
+        self._items[0].setText(prev_text)
+        self._items[0].setFont(self._normal_font)
+        self._items[1].setText(current_text)
+        self._items[1].setFont(self._bold_font)
+        self._items[2].setText(next_text)
+        self._items[2].setFont(self._normal_font)
+        self._items[3].setText("")
+        self._items[3].setOpacity(0.0)
 
         self._layout_lyrics_labels()
-        for label, opacity in self._rest_opacity.items():
-            self._effects[label].setOpacity(opacity)
 
     def _reset_lyric_rows(self, prev_text: str, current_text: str, next_text: str):
-        if self._slide_group is not None:
-            self._slide_group.stop()
-        self.incoming_label.hide()
-        self.prev_label.setText(prev_text)
-        self.current_label.setText(current_text)
-        self.next_label.setText(next_text)
+        self._stop_scroll_animation()
+        self._items[0].setText(prev_text)
+        self._items[0].setFont(self._normal_font)
+        self._items[1].setText(current_text)
+        self._items[1].setFont(self._bold_font)
+        self._items[2].setText(next_text)
+        self._items[2].setFont(self._normal_font)
+        self._items[3].setText("")
+        self._items[3].setOpacity(0.0)
         self._layout_lyrics_labels()
-        for label, opacity in self._rest_opacity.items():
-            self._effects[label].setOpacity(opacity)
