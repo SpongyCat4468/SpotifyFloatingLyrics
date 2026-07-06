@@ -117,6 +117,8 @@ class OverlayWindow(QWidget):
         self._click_through = True
         self._drag_offset: Optional[QPoint] = None
         self._attached = False
+        self._approximate = False
+        self._base_track_text = ""
         self._build_ui()
         self.set_opacity(DEFAULT_OPACITY_PERCENT)
         self.set_scale(DEFAULT_SCALE_PERCENT)
@@ -313,9 +315,25 @@ class OverlayWindow(QWidget):
 
     # --- public API used by the controller ---
     def set_track_info(self, title: str, artist: str):
-        self.title_label.setText(f"{title} — {artist}" if artist else title)
+        self._base_track_text = f"{title} — {artist}" if artist else title
+        self._refresh_title()
+
+    def set_approximate(self, approximate: bool):
+        # Plain lyrics carry no real timestamps; we spread them evenly across
+        # the track, so the highlighted line is only a rough guess. Mark the
+        # title so the user knows the timing isn't exact.
+        self._approximate = approximate
+        self._refresh_title()
+
+    def _refresh_title(self):
+        text = self._base_track_text
+        if self._approximate:
+            text += "   ·   ≈ approx. timing"
+        self.title_label.setText(text)
 
     def show_idle(self, message: str):
+        self._approximate = False
+        self._base_track_text = message
         self.title_label.setText(message)
         self._reset_lyric_rows("", "", "")
         self._lines = []
