@@ -114,12 +114,14 @@ class SpotifyClient:
                     playlist_id,
                     offset=offset,
                     limit=page_size,
-                    fields="items(track(name,duration_ms,artists(name))),total",
                     additional_types=("track",),
                 )
                 items = page.get("items", [])
                 for item in items:
-                    track = item.get("track") or {}
+                    # Spotify's playlist-item shape shifted: the track object
+                    # now comes back under "item" rather than the historical
+                    # "track", so accept whichever is present.
+                    track = item.get("track") or item.get("item") or {}
                     name = track.get("name")
                     if not name:
                         continue  # local files / unavailable tracks
