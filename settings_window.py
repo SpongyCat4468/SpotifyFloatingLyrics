@@ -83,7 +83,7 @@ class SettingsWindow(QWidget):
         # --- Color pickers ---
         layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
         layout.addLayout(self._make_color_row("Background", self._bg_color, "bg"))
-        layout.addLayout(self._make_color_row("UI Theme", self._accent_color, "accent"))
+        layout.addLayout(self._make_color_row("UI Accent", self._accent_color, "accent"))
 
         layout.addStretch()
 
