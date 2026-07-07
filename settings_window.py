@@ -195,6 +195,7 @@ class SettingsWindow(QWidget):
                 DEFAULT_SCALE_PERCENT,
                 self.size_value_label,
                 self._on_scale_changed,
+                slider_attr="_size_slider",
             )
         )
 
@@ -207,6 +208,7 @@ class SettingsWindow(QWidget):
                 DEFAULT_OPACITY_PERCENT,
                 self.opacity_value_label,
                 self._on_opacity_changed,
+                slider_attr="_opacity_slider",
             )
         )
 
@@ -352,7 +354,7 @@ class SettingsWindow(QWidget):
         self.style().unpolish(self)
         self.style().polish(self)
 
-    def _make_slider_row(self, name, minimum, maximum, default, value_label, on_change):
+    def _make_slider_row(self, name, minimum, maximum, default, value_label, on_change, slider_attr=None):
         row = QHBoxLayout()
         row.setSpacing(10)
         name_label = QLabel(name)
@@ -366,7 +368,17 @@ class SettingsWindow(QWidget):
         row.addWidget(name_label)
         row.addWidget(slider)
         row.addWidget(value_label)
+        if slider_attr:
+            setattr(self, slider_attr, slider)
         return row
+
+    def set_scale_value(self, percent: int):
+        """Set the Size slider (used to restore the saved size on launch)."""
+        self._size_slider.setValue(percent)
+
+    def set_opacity_value(self, percent: int):
+        """Set the Opacity slider (used to restore the saved opacity)."""
+        self._opacity_slider.setValue(percent)
 
     def _build_precache_section(self, layout):
         heading = QLabel("Pre-cache a playlist")
