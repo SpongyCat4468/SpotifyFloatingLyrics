@@ -64,34 +64,6 @@ _CONFIRM_STYLE = """
     }
 """
 
-# The confirmation is a QMessageBox; style it dark so it matches the panel
-# instead of showing as a jarring white OS dialog.
-_CONFIRM_STYLE = """
-    QMessageBox {
-        background-color: #1e1e1e;
-    }
-    QMessageBox QLabel {
-        color: white;
-    }
-    QMessageBox QPushButton {
-        background-color: #333333;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 6px 18px;
-        min-width: 64px;
-    }
-    QMessageBox QPushButton:hover {
-        background-color: #444444;
-    }
-    QMessageBox QPushButton:default {
-        background-color: #1DB954;
-    }
-    QMessageBox QPushButton:default:hover {
-        background-color: #1ed760;
-    }
-"""
-
 
 class SettingsWindow(QWidget):
     scale_changed = Signal(int)
@@ -267,6 +239,16 @@ class SettingsWindow(QWidget):
             QCheckBox::indicator:checked {{
                 background: {accent};
                 border: 1px solid {accent};
+            }}
+            QPushButton#clearcache {{
+                background-color: rgba(255,255,255,18);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px;
+            }}
+            QPushButton#clearcache:hover {{
+                background-color: rgba(255,255,255,32);
             }}
             """
         )
