@@ -198,7 +198,10 @@ class SettingsWindow(QWidget):
                 f"background-color: {color.name()}; border-radius: 3px; border: 1px solid rgba(255,255,255,60);"
             )
             hex_label.setText(color.name().upper())
+        self.accent_color_changed.emit(accent_color)
         self._update_accent_style()
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def _make_slider_row(self, name, minimum, maximum, default, value_label, on_change):
         row = QHBoxLayout()
