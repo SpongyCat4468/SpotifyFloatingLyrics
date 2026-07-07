@@ -36,6 +36,7 @@ from lyrics import LyricsFetcher, LyricsResult
 from media_session import MediaSessionWatcher, NowPlaying
 from overlay import OverlayWindow
 from position_tracker import PositionTracker
+from precache_worker import PlaylistPrecacher
 from settings_window import SettingsWindow
 from tray_icon import TrayIcon
 
@@ -68,6 +69,7 @@ class AppController(QObject):
         self.settings_window = SettingsWindow()
         self.control_bar = ControlBar()
         self.tray_icon = TrayIcon()
+        self.precacher = PlaylistPrecacher()
 
         self.current_now_playing: NowPlaying | None = None
         self.current_lyrics: LyricsResult | None = None
@@ -91,6 +93,11 @@ class AppController(QObject):
         self.settings_window.opacity_changed.connect(self.control_bar.set_opacity)
         self.settings_window.controls_toggled.connect(self._toggle_control_bar)
         self.settings_window.clear_cache_requested.connect(self.lyrics_fetcher.clear_cache)
+        self.settings_window.precache_requested.connect(self.precacher.start)
+
+        self.precacher.progress.connect(self.settings_window.set_precache_progress)
+        self.precacher.finished.connect(self.settings_window.set_precache_finished)
+        self.precacher.failed.connect(self.settings_window.set_precache_error)
 
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
@@ -181,7 +188,6 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     controller = AppController()
-    controller.overlay.set_movable(True)
     controller.start()
 
     sys.exit(app.exec())
