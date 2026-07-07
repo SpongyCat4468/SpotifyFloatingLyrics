@@ -90,6 +90,7 @@ class AppController(QObject):
         self.settings_window.opacity_changed.connect(self.overlay.set_opacity)
         self.settings_window.opacity_changed.connect(self.control_bar.set_opacity)
         self.settings_window.controls_toggled.connect(self._toggle_control_bar)
+        self.settings_window.clear_cache_requested.connect(self.lyrics_fetcher.clear_cache)
 
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 

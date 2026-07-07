@@ -4,9 +4,19 @@ and background opacity live. Opened from the tray icon.
 
 from typing import Optional
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QMouseEvent
-from PySide6.QtWidgets import QApplication, QCheckBox, QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from overlay import (
     DEFAULT_OPACITY_PERCENT,
@@ -49,6 +59,44 @@ _SLIDER_STYLE = """
         background: #1DB954;
         border: 1px solid #1DB954;
     }
+    QPushButton#clearcache {
+        background-color: rgba(255,255,255,18);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 7px;
+    }
+    QPushButton#clearcache:hover {
+        background-color: rgba(255,255,255,32);
+    }
+"""
+
+# The confirmation is a QMessageBox; style it dark so it matches the panel
+# instead of showing as a jarring white OS dialog.
+_CONFIRM_STYLE = """
+    QMessageBox {
+        background-color: #1e1e1e;
+    }
+    QMessageBox QLabel {
+        color: white;
+    }
+    QMessageBox QPushButton {
+        background-color: #333333;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 18px;
+        min-width: 64px;
+    }
+    QMessageBox QPushButton:hover {
+        background-color: #444444;
+    }
+    QMessageBox QPushButton:default {
+        background-color: #1DB954;
+    }
+    QMessageBox QPushButton:default:hover {
+        background-color: #1ed760;
+    }
 """
 
 
@@ -56,6 +104,7 @@ class SettingsWindow(QWidget):
     scale_changed = Signal(int)
     opacity_changed = Signal(int)
     controls_toggled = Signal(bool)
+    clear_cache_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -125,6 +174,12 @@ class SettingsWindow(QWidget):
         self.controls_checkbox.toggled.connect(self.controls_toggled)
         layout.addWidget(self.controls_checkbox)
 
+        self.clear_cache_button = QPushButton("Clear lyrics cache")
+        self.clear_cache_button.setObjectName("clearcache")
+        self.clear_cache_button.setCursor(Qt.PointingHandCursor)
+        self.clear_cache_button.clicked.connect(self._confirm_clear_cache)
+        layout.addWidget(self.clear_cache_button)
+
         self.close_button = QLabel("✕", self)
         self.close_button.setStyleSheet("color: rgba(255,255,255,140);")
         self.close_button.setFont(QFont("Segoe UI", 10))
@@ -154,6 +209,27 @@ class SettingsWindow(QWidget):
     def _on_opacity_changed(self, value: int):
         self.opacity_value_label.setText(f"{value}%")
         self.opacity_changed.emit(value)
+
+    def _confirm_clear_cache(self):
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Clear lyrics cache")
+        box.setText("Delete all cached lyrics?")
+        box.setInformativeText(
+            "Saved lyrics will be removed and re-downloaded the next time "
+            "each song plays."
+        )
+        box.setStyleSheet(_CONFIRM_STYLE)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        box.button(QMessageBox.Yes).setText("Delete")
+        box.button(QMessageBox.No).setText("Cancel")
+        if box.exec() == QMessageBox.Yes:
+            self.clear_cache_requested.emit()
+            self.clear_cache_button.setText("Cache cleared ✓")
+            QTimer.singleShot(
+                2000, lambda: self.clear_cache_button.setText("Clear lyrics cache")
+            )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

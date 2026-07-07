@@ -163,6 +163,21 @@ def _save_to_disk(key: Tuple[str, str], result: LyricsResult):
         pass
 
 
+def clear_disk_cache() -> int:
+    """Delete every cached lyrics file. Returns how many were removed."""
+    removed = 0
+    try:
+        for f in _CACHE_DIR.glob("*.json"):
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return removed
+
+
 class LyricsFetcher(QObject):
     lyrics_loading = Signal(str, str)
     lyrics_ready = Signal(str, str, object)  # title, artist, LyricsResult
@@ -171,6 +186,12 @@ class LyricsFetcher(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cache = {}
+
+    def clear_cache(self):
+        # Clears both the in-memory cache (this session) and the on-disk
+        # cache, so the next play of every song does a fresh network fetch.
+        self._cache.clear()
+        clear_disk_cache()
 
     def request(self, title: str, artist: str, duration_ms: int = 0):
         key = (title.lower(), artist.lower())
@@ -190,8 +211,23 @@ class LyricsFetcher(QObject):
         ).start()
 
     def _fetch(self, title: str, artist: str, duration_ms: int, key):
-        # Accurate duration-signature lookup first; fall back to fuzzy search.
-        result = _lrclib_get(title, artist, duration_ms) or _lrclib_search(title, artist)
+        # Prefer synced lyrics from either LRCLIB endpoint. /api/get is the
+        # most accurate match (track + artist + duration), but the exact entry
+        # it lands on sometimes only has plain lyrics while a different upload
+        # found via fuzzy search has synced ones - so if get is unsynced or
+        # missing, try search and take its result when it's synced. Only fall
+        # back to a plain result (get preferred, it's duration-matched) when
+        # neither source has synced lyrics.
+        get_result = _lrclib_get(title, artist, duration_ms)
+        if get_result is not None and get_result.synced:
+            result = get_result
+        else:
+            search_result = _lrclib_search(title, artist)
+            if search_result is not None and search_result.synced:
+                result = search_result
+            else:
+                result = get_result or search_result
+
         if result is not None:
             self._cache[key] = result
             _save_to_disk(key, result)
