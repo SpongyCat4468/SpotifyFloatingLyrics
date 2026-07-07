@@ -122,6 +122,7 @@ class OverlayWindow(QWidget):
         self._click_through = True
         self._drag_offset: Optional[QPoint] = None
         self._attached = False
+        self._approximate = False
         self._lyrics_color = QColor(Qt.white)
         self._bg_color = QColor(18, 18, 18)
         self._build_ui()
