@@ -9,11 +9,17 @@ currently playing in the Spotify desktop app.
 - Fetches time-synced lyrics via [syncedlyrics](https://github.com/moehmeni/syncedlyrics)
   and highlights the current line as the song plays.
 
-## Run the prebuilt .exe
+## Run the prebuilt .exe (Recommended)
 
 [`dist/SpotifyFloatingLyrics.exe`](dist/SpotifyFloatingLyrics.exe) is a standalone build — just double-click it,
 no Python install needed. Windows may show a SmartScreen warning for an
 unsigned exe the first time; click "More info" -> "Run anyway".
+
+## Pre-caching playlists
+Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), then follow the instructions below:
+ - Click on create app
+ - App name and description does not matter, just make sure you fill in `http://127.0.0.1:8888/callback` in Redirect URLs
+ - After filling in the URL, copy the CLIENT ID on top and fill it into 
 
 ## Setup (running from source)
 
