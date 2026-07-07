@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QMouseEvent
+from PySide6.QtGui import QColor, QFont, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
+    QColorDialog
 )
-
 from overlay import (
     DEFAULT_OPACITY_PERCENT,
     DEFAULT_SCALE_PERCENT,
@@ -110,8 +110,6 @@ _SLIDER_STYLE = """
     }
 """
 
-# The confirmation is a QMessageBox; style it dark so it matches the panel
-# instead of showing as a jarring white OS dialog.
 _CONFIRM_STYLE = """
     QMessageBox {
         background-color: #1e1e1e;
@@ -136,6 +134,16 @@ _CONFIRM_STYLE = """
     QMessageBox QPushButton:default:hover {
         background-color: #1ed760;
     }
+    QPushButton#clearcache {
+        background-color: rgba(255,255,255,18);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 7px;
+    }
+    QPushButton#clearcache:hover {
+        background-color: rgba(255,255,255,32);
+    }
 """
 
 
@@ -143,6 +151,9 @@ class SettingsWindow(QWidget):
     scale_changed = Signal(int)
     opacity_changed = Signal(int)
     controls_toggled = Signal(bool)
+    lyrics_color_changed = Signal(QColor)
+    bg_color_changed = Signal(QColor)
+    accent_color_changed = Signal(QColor)
     clear_cache_requested = Signal()
     precache_requested = Signal(str, str)  # client_id, playlist_url
 
@@ -150,9 +161,12 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(320, 230)
+        self.resize(320, 380)
 
         self._drag_offset: Optional[QPoint] = None
+        self._lyrics_color = QColor(Qt.white)
+        self._bg_color = QColor(18, 18, 18)
+        self._accent_color = QColor("#1DB954")
         self._build_ui()
         # Size to exactly fit the content so there's no dead space below the
         # last control, rather than the fixed height above.
@@ -160,20 +174,6 @@ class SettingsWindow(QWidget):
         self._move_to_default_position()
 
     def _build_ui(self):
-        self.setStyleSheet(
-            f"""
-            #card {{
-                background-color: rgba(18, 18, 18, 235);
-                border-radius: 16px;
-            }}
-            QLabel {{
-                color: white;
-                background: transparent;
-            }}
-            {_SLIDER_STYLE}
-            """
-        )
-
         self.card = QWidget(self)
         self.card.setObjectName("card")
         self.card.setGeometry(0, 0, self.width(), self.height())
@@ -214,6 +214,10 @@ class SettingsWindow(QWidget):
         self.controls_checkbox.toggled.connect(self.controls_toggled)
         layout.addWidget(self.controls_checkbox)
 
+        # --- Color pickers ---
+        layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
+        layout.addLayout(self._make_color_row("Background", self._bg_color, "bg"))
+        layout.addLayout(self._make_color_row("UI Accent", self._accent_color, "accent"))
         self.clear_cache_button = QPushButton("Clear lyrics cache")
         self.clear_cache_button.setObjectName("clearcache")
         self.clear_cache_button.setCursor(Qt.PointingHandCursor)
@@ -227,6 +231,126 @@ class SettingsWindow(QWidget):
         self.close_button.setFont(QFont("Segoe UI", 10))
         self.close_button.move(self.width() - 26, 8)
         self.close_button.mousePressEvent = lambda _event: self.hide()
+
+        self._update_accent_style()
+
+    def _make_color_row(self, name: str, color: QColor, target: str):
+        row = QHBoxLayout()
+        row.setSpacing(10)
+
+        label = QLabel(name)
+        label.setFixedWidth(70)
+
+        preview = QLabel()
+        preview.setFixedSize(20, 20)
+        preview.setStyleSheet(
+            f"background-color: {color.name()}; border-radius: 3px; border: 1px solid rgba(255,255,255,60);"
+        )
+        preview.mousePressEvent = lambda _e, t=target: self._pick_color(t)
+
+        hex_label = QLabel(color.name().upper())
+        hex_label.setFixedWidth(60)
+
+        row.addWidget(label)
+        row.addWidget(preview)
+        row.addWidget(hex_label)
+        row.addStretch()
+
+        setattr(self, f"_{target}_preview", preview)
+        setattr(self, f"_{target}_hex", hex_label)
+        return row
+
+    def _pick_color(self, target: str):
+        current = getattr(self, f"_{target}_color")
+        color = QColorDialog.getColor(current, self, f"Choose {target.title()} Color")
+        if not color.isValid():
+            return
+        setattr(self, f"_{target}_color", color)
+        preview: QLabel = getattr(self, f"_{target}_preview")
+        hex_label: QLabel = getattr(self, f"_{target}_hex")
+        preview.setStyleSheet(
+            f"background-color: {color.name()}; border-radius: 3px; border: 1px solid rgba(255,255,255,60);"
+        )
+        hex_label.setText(color.name().upper())
+
+        signal_map = {
+            "lyrics": self.lyrics_color_changed,
+            "bg": self.bg_color_changed,
+            "accent": self.accent_color_changed,
+        }
+        signal_map[target].emit(color)
+        if target == "accent":
+            self._update_accent_style()
+
+    def _update_accent_style(self):
+        accent = self._accent_color.name()
+        self.setStyleSheet(
+            f"""
+            #card {{
+                background-color: rgba(18, 18, 18, 235);
+                border-radius: 16px;
+            }}
+            QLabel {{
+                color: white;
+                background: transparent;
+            }}
+            QSlider::groove:horizontal {{
+                height: 4px;
+                background: rgba(255,255,255,60);
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {accent};
+                width: 14px;
+                margin: -6px 0;
+                border-radius: 7px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {accent};
+                border-radius: 2px;
+            }}
+            QCheckBox {{
+                color: white;
+                background: transparent;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid rgba(255,255,255,90);
+                background: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background: {accent};
+                border: 1px solid {accent};
+            }}
+            QPushButton#clearcache {{
+                background-color: rgba(255,255,255,18);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px;
+            }}
+            QPushButton#clearcache:hover {{
+                background-color: rgba(255,255,255,32);
+            }}
+            """
+        )
+
+    def set_colors(self, lyrics_color: QColor, bg_color: QColor, accent_color: QColor):
+        for target, color in [("lyrics", lyrics_color), ("bg", bg_color), ("accent", accent_color)]:
+            setattr(self, f"_{target}_color", color)
+            preview: QLabel = getattr(self, f"_{target}_preview")
+            hex_label: QLabel = getattr(self, f"_{target}_hex")
+            preview.setStyleSheet(
+                f"background-color: {color.name()}; border-radius: 3px; border: 1px solid rgba(255,255,255,60);"
+            )
+            hex_label.setText(color.name().upper())
+        self.accent_color_changed.emit(accent_color)
+        self._update_accent_style()
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def _make_slider_row(self, name, minimum, maximum, default, value_label, on_change):
         row = QHBoxLayout()

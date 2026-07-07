@@ -28,7 +28,8 @@ except (AttributeError, OSError):
         except (AttributeError, OSError):
             pass
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QSettings, Qt, QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from control_bar import ControlBar
@@ -99,6 +100,26 @@ class AppController(QObject):
         self.precacher.finished.connect(self.settings_window.set_precache_finished)
         self.precacher.failed.connect(self.settings_window.set_precache_error)
 
+        self.settings_window.lyrics_color_changed.connect(self._on_lyrics_color_changed)
+        self.settings_window.bg_color_changed.connect(self._on_bg_color_changed)
+        self.settings_window.accent_color_changed.connect(self._on_accent_color_changed)
+
+        settings = QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics")
+        lyrics_color = settings.value("lyrics/color", QColor(Qt.white))
+        bg_color = settings.value("background/color", QColor(18, 18, 18))
+        accent_color = settings.value("accent/color", QColor("#1DB954"))
+        if isinstance(lyrics_color, str):
+            lyrics_color = QColor(lyrics_color)
+        if isinstance(bg_color, str):
+            bg_color = QColor(bg_color)
+        if isinstance(accent_color, str):
+            accent_color = QColor(accent_color)
+        self.overlay.set_lyrics_color(lyrics_color)
+        self.overlay.set_bg_color(bg_color)
+        self.control_bar.set_accent_color(accent_color)
+        self.tray_icon.set_accent_color(accent_color)
+        self.settings_window.set_colors(lyrics_color, bg_color, accent_color)
+
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
         self.control_bar.play_pause_clicked.connect(self.watcher.toggle_play_pause)
@@ -131,6 +152,19 @@ class AppController(QObject):
         self.overlay.set_attached(enabled)
         if enabled:
             self.control_bar.follow(self.overlay.geometry())
+
+    def _on_lyrics_color_changed(self, color: QColor):
+        self.overlay.set_lyrics_color(color)
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("lyrics/color", color)
+
+    def _on_bg_color_changed(self, color: QColor):
+        self.overlay.set_bg_color(color)
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("background/color", color)
+
+    def _on_accent_color_changed(self, color: QColor):
+        self.control_bar.set_accent_color(color)
+        self.tray_icon.set_accent_color(color)
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("accent/color", color)
 
     def _sync_control_bar_position(self):
         if self.control_bar.isVisible():

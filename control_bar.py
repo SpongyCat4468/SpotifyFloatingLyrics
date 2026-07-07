@@ -16,7 +16,6 @@ _BASE_ICON_SIZE = 12
 _BASE_TIME_PT = 8
 
 _WHITE = QColor(255, 255, 255, 230)
-_GREEN = QColor("#1DB954")
 
 
 def _format_time(ms: int) -> str:
@@ -33,6 +32,7 @@ class IconButton(QPushButton):
         super().__init__(parent)
         self.kind = kind  # 'play_pause' | 'prev' | 'next'
         self._playing = False
+        self._accent_color = QColor("#1DB954")
         self.setCursor(Qt.PointingHandCursor)
         self.setFlat(True)
         self.setStyleSheet("QPushButton { background: transparent; border: none; }")
@@ -48,10 +48,14 @@ class IconButton(QPushButton):
         self._icon_size = icon_px
         self.update()
 
+    def set_accent_color(self, color: QColor):
+        self._accent_color = color
+        self.update()
+
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        color = _GREEN if self.underMouse() else _WHITE
+        color = self._accent_color if self.underMouse() else _WHITE
         painter.setPen(Qt.NoPen)
         painter.setBrush(color)
 
@@ -110,6 +114,7 @@ class ControlBar(QWidget):
         self._duration_ms = 0
         self._user_seeking = False
         self._opacity_percent = 75
+        self._accent_color = QColor("#1DB954")
 
         self._build_ui()
         self.set_opacity(self._opacity_percent)
@@ -170,9 +175,16 @@ class ControlBar(QWidget):
         self.resize(self.width() or 620, self.card.sizeHint().height())
         self.card.setGeometry(0, 0, self.width(), self.height())
 
+    def set_accent_color(self, color: QColor):
+        self._accent_color = color
+        for button in (self.prev_button, self.play_pause_button, self.next_button):
+            button.set_accent_color(color)
+        self.set_opacity(self._opacity_percent)
+
     def set_opacity(self, percent: int):
         self._opacity_percent = percent
         alpha = round(255 * percent / 100)
+        accent = self._accent_color.name()
         # Square top corners: this strip joins flush to the overlay's bottom
         # edge, so only the bottom corners are rounded.
         self.setStyleSheet(
@@ -198,7 +210,7 @@ class ControlBar(QWidget):
                 border-radius: 5px;
             }}
             QSlider::sub-page:horizontal {{
-                background: #1DB954;
+                background: {accent};
                 border-radius: 2px;
             }}
             """

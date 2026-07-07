@@ -8,7 +8,7 @@ import ctypes
 from typing import Optional
 
 from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QFont, QFontMetrics, QMouseEvent, QPainter
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QFrame, QGraphicsObject, QGraphicsScene, QGraphicsView, QLabel, QVBoxLayout, QWidget
 
 _SLIDE_MS = 320
@@ -74,6 +74,11 @@ class LyricItem(QGraphicsObject):
         self._text = ""
         self._font = QFont()
         self._bounding_rect = QRectF()
+        self._color = QColor(Qt.white)
+
+    def setColor(self, color: QColor):
+        self._color = color
+        self.update()
 
     def setText(self, text: str):
         self._text = text
@@ -94,7 +99,7 @@ class LyricItem(QGraphicsObject):
         if not self._text or self._bounding_rect.isEmpty():
             return
         painter.setFont(self._font)
-        painter.setPen(Qt.white)
+        painter.setPen(self._color)
         painter.drawText(
             self._bounding_rect,
             Qt.AlignCenter | Qt.TextWordWrap,
@@ -118,6 +123,8 @@ class OverlayWindow(QWidget):
         self._drag_offset: Optional[QPoint] = None
         self._attached = False
         self._approximate = False
+        self._lyrics_color = QColor(Qt.white)
+        self._bg_color = QColor(18, 18, 18)
         self._build_ui()
         self.set_opacity(DEFAULT_OPACITY_PERCENT)
         self.set_scale(DEFAULT_SCALE_PERCENT)
@@ -278,14 +285,24 @@ class OverlayWindow(QWidget):
         else:
             self._layout_lyrics_labels()
 
+    def set_lyrics_color(self, color: QColor):
+        self._lyrics_color = color
+        for item in self._items:
+            item.setColor(color)
+
+    def set_bg_color(self, color: QColor):
+        self._bg_color = color
+        self.set_opacity(self._opacity_percent)
+
     def set_opacity(self, percent: int):
         self._opacity_percent = percent
         alpha = round(255 * percent / 100)
         bottom_radius = 0 if self._attached else 16
+        r, g, b = self._bg_color.red(), self._bg_color.green(), self._bg_color.blue()
         self.setStyleSheet(
             f"""
             #card {{
-                background-color: rgba(18, 18, 18, {alpha});
+                background-color: rgba({r}, {g}, {b}, {alpha});
                 border-top-left-radius: 16px;
                 border-top-right-radius: 16px;
                 border-bottom-left-radius: {bottom_radius}px;

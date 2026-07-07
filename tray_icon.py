@@ -9,21 +9,6 @@ from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 
-def _make_icon() -> QIcon:
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    painter.setBrush(QColor("#1DB954"))
-    painter.setPen(Qt.NoPen)
-    painter.drawEllipse(2, 2, 28, 28)
-    painter.setPen(QColor("white"))
-    painter.setFont(QFont("Segoe UI", 15, QFont.Bold))
-    painter.drawText(pixmap.rect(), Qt.AlignCenter, "L")
-    painter.end()
-    return QIcon(pixmap)
-
-
 class TrayIcon(QSystemTrayIcon):
     toggle_requested = Signal()
     movable_toggled = Signal(bool)
@@ -31,7 +16,8 @@ class TrayIcon(QSystemTrayIcon):
     quit_requested = Signal()
 
     def __init__(self, parent=None):
-        super().__init__(_make_icon(), parent)
+        self._accent_color = QColor("#1DB954")
+        super().__init__(self._make_icon(), parent)
         self.setToolTip("Spotify Floating Lyrics")
 
         menu = QMenu()
@@ -53,6 +39,24 @@ class TrayIcon(QSystemTrayIcon):
         self.setContextMenu(menu)
 
         self.activated.connect(self._on_activated)
+
+    def _make_icon(self) -> QIcon:
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(self._accent_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(2, 2, 28, 28)
+        painter.setPen(QColor("white"))
+        painter.setFont(QFont("Segoe UI", 15, QFont.Bold))
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "L")
+        painter.end()
+        return QIcon(pixmap)
+
+    def set_accent_color(self, color: QColor):
+        self._accent_color = color
+        self.setIcon(self._make_icon())
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
