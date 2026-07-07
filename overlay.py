@@ -178,6 +178,14 @@ class OverlayWindow(QWidget):
         self.title_label.setStyleSheet("color: rgba(255,255,255,140);")
         self._card_layout.addWidget(self.title_label)
 
+        # A yellow "unsynced" badge pinned to the top-right corner, shown only
+        # when the lyrics are plain text spread evenly across the track (see
+        # set_approximate) so the rough timing is clearly flagged.
+        self.unsynced_label = QLabel("unsynced", self.card)
+        self.unsynced_label.setObjectName("unsynced")
+        self.unsynced_label.setAlignment(Qt.AlignCenter)
+        self.unsynced_label.hide()
+
         # prev/current/next/incoming are rendered as QGraphicsItems inside a
         # QGraphicsScene/QGraphicsView.  Each item exposes pos / opacity /
         # scale as animatable Qt properties so scrolling can slide, fade,
@@ -261,6 +269,12 @@ class OverlayWindow(QWidget):
             self.move(old_center.x() - width // 2, old_center.y() - height // 2)
         self.geometry_changed.emit()
 
+        badge_font = QFont("Segoe UI", max(6, round(_BASE_TITLE_PT * factor)), QFont.Bold)
+        self.unsynced_label.setFont(badge_font)
+        self.unsynced_label.adjustSize()
+        self._badge_margin = round(10 * factor)
+        self._position_unsynced_badge()
+
         # Re-render whatever's currently showing at the new sizes.
         if self._lines and 0 <= self._current_index < len(self._lines):
             idx = self._current_index
@@ -298,7 +312,19 @@ class OverlayWindow(QWidget):
                 color: white;
                 background: transparent;
             }}
+            #unsynced {{
+                background-color: #F5C518;
+                color: #101010;
+                border-radius: 6px;
+                padding: 1px 7px;
+            }}
             """
+        )
+
+    def _position_unsynced_badge(self):
+        margin = getattr(self, "_badge_margin", 10)
+        self.unsynced_label.move(
+            self.width() - self.unsynced_label.width() - margin, margin
         )
 
     def _layout_lyrics_labels(self):
@@ -321,6 +347,7 @@ class OverlayWindow(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.card.setGeometry(0, 0, self.width(), self.height())
+        self._position_unsynced_badge()
         self.geometry_changed.emit()
 
     def _move_to_default_position(self):
@@ -333,7 +360,18 @@ class OverlayWindow(QWidget):
     def set_track_info(self, title: str, artist: str):
         self.title_label.setText(f"{title} — {artist}" if artist else title)
 
+    def set_approximate(self, approximate: bool):
+        # Plain lyrics carry no real timestamps; we spread them evenly across
+        # the track, so the highlighted line is only a rough guess. Show the
+        # yellow "unsynced" badge so the user knows the timing isn't exact.
+        self._approximate = approximate
+        self.unsynced_label.setVisible(approximate)
+        if approximate:
+            self.unsynced_label.adjustSize()
+            self._position_unsynced_badge()
+
     def show_idle(self, message: str):
+        self.set_approximate(False)
         self.title_label.setText(message)
         self._reset_lyric_rows("", "", "")
         self._lines = []

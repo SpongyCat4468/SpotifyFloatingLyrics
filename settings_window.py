@@ -52,6 +52,44 @@ _CONFIRM_STYLE = """
     QMessageBox QPushButton:default:hover {
         background-color: #1ed760;
     }
+    QPushButton#clearcache {
+        background-color: rgba(255,255,255,18);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 7px;
+    }
+    QPushButton#clearcache:hover {
+        background-color: rgba(255,255,255,32);
+    }
+"""
+
+# The confirmation is a QMessageBox; style it dark so it matches the panel
+# instead of showing as a jarring white OS dialog.
+_CONFIRM_STYLE = """
+    QMessageBox {
+        background-color: #1e1e1e;
+    }
+    QMessageBox QLabel {
+        color: white;
+    }
+    QMessageBox QPushButton {
+        background-color: #333333;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 18px;
+        min-width: 64px;
+    }
+    QMessageBox QPushButton:hover {
+        background-color: #444444;
+    }
+    QMessageBox QPushButton:default {
+        background-color: #1DB954;
+    }
+    QMessageBox QPushButton:default:hover {
+        background-color: #1ed760;
+    }
 """
 
 
@@ -75,6 +113,9 @@ class SettingsWindow(QWidget):
         self._bg_color = QColor(18, 18, 18)
         self._accent_color = QColor("#1DB954")
         self._build_ui()
+        # Size to exactly fit the content so there's no dead space below the
+        # last control, rather than the fixed height above.
+        self.resize(320, self.card.sizeHint().height())
         self._move_to_default_position()
 
     def _build_ui(self):
@@ -122,7 +163,6 @@ class SettingsWindow(QWidget):
         layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
         layout.addLayout(self._make_color_row("Background", self._bg_color, "bg"))
         layout.addLayout(self._make_color_row("UI Accent", self._accent_color, "accent"))
-
         self.clear_cache_button = QPushButton("Clear lyrics cache")
         self.clear_cache_button.setObjectName("clearcache")
         self.clear_cache_button.setCursor(Qt.PointingHandCursor)

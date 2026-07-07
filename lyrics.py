@@ -1,7 +1,9 @@
-"""Fetches synced (LRC) lyrics for the current track via the syncedlyrics
-library. Results are cached both in memory and on disk (keyed by
-title+artist), so replaying a song - even after restarting the app - skips
-the network fetch entirely.
+"""Fetches synced (LRC) lyrics for the current track.
+
+Lookup order: LRCLIB's accurate /api/get (matches track + artist +
+duration), then LRCLIB's fuzzy /api/search, then the syncedlyrics library.
+Results are cached both in memory and on disk (keyed by title+artist), so
+replaying a song - even after restarting the app - skips the network fetch.
 """
 
 import hashlib
@@ -25,7 +27,9 @@ _LRC_LINE_RE = re.compile(r"\[(\d{1,2}):(\d{2}(?:\.\d+)?)\](.*)")
 
 _CACHE_DIR = Path(os.getenv("LOCALAPPDATA", str(Path.home()))) / "SpotifyFloatingLyrics" / "lyrics_cache"
 
+_LRCLIB_GET_URL = "https://lrclib.net/api/get"
 _LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
+_USER_AGENT = "SpotifyFloatingLyrics (https://github.com/SpongyCat4468/SpotifyFloatingLyrics)"
 _MIN_ARTIST_SIMILARITY = 85
 _MIN_TITLE_SIMILARITY = 80
 
@@ -66,20 +70,50 @@ def _result_from_lrclib_track(track: dict) -> Optional["LyricsResult"]:
     return None
 
 
-def _lrclib_lookup(title: str, artist: str) -> Optional["LyricsResult"]:
-    """Queries LRCLIB with separate track/artist params (unlike syncedlyrics'
-    combined free-text search) and only accepts a result whose artist and
-    title are both a close match, so a title-only fuzzy hit - e.g. searching
-    "Lemonade" "aespa" landing on a different artist's "...Lemonade" track -
-    can't slip through as a wrong-song result.
+def _lrclib_get(title: str, artist: str, duration_ms: int) -> Optional["LyricsResult"]:
+    """Accurate signature lookup via LRCLIB's /api/get: it matches on track
+    name, artist, AND duration, so it returns the one exact recording or a
+    404 - never a fuzzy look-alike. Needs a real duration to disambiguate;
+    without one we skip straight to the search fallback.
+    """
+    if not duration_ms:
+        return None
+    try:
+        response = requests.get(
+            _LRCLIB_GET_URL,
+            params={
+                "track_name": title,
+                "artist_name": artist,
+                "duration": round(duration_ms / 1000),
+            },
+            headers={"User-Agent": _USER_AGENT},
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        return _result_from_lrclib_track(response.json())
+    except Exception:
+        return None
+
+
+def _lrclib_search(title: str, artist: str) -> Optional["LyricsResult"]:
+    """Fuzzy fallback for when /api/get finds nothing (e.g. the track's
+    duration doesn't match LRCLIB's copy). /api/search returns a ranked
+    candidate list with no duration disambiguation, so we only accept a
+    result whose artist and title both score above a similarity threshold -
+    otherwise a title-only hit (e.g. "Lemonade" landing on a different
+    artist's track) could slip through as a wrong-song match.
     """
     try:
         response = requests.get(
             _LRCLIB_SEARCH_URL,
             params={"track_name": title, "artist_name": artist},
+            headers={"User-Agent": _USER_AGENT},
             timeout=10,
         )
-        # print(response.json())
         response.raise_for_status()
         candidates = response.json()
     except Exception:
@@ -129,6 +163,21 @@ def _save_to_disk(key: Tuple[str, str], result: LyricsResult):
         pass
 
 
+def clear_disk_cache() -> int:
+    """Delete every cached lyrics file. Returns how many were removed."""
+    removed = 0
+    try:
+        for f in _CACHE_DIR.glob("*.json"):
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return removed
+
+
 class LyricsFetcher(QObject):
     lyrics_loading = Signal(str, str)
     lyrics_ready = Signal(str, str, object)  # title, artist, LyricsResult
@@ -138,7 +187,13 @@ class LyricsFetcher(QObject):
         super().__init__(parent)
         self._cache = {}
 
-    def request(self, title: str, artist: str):
+    def clear_cache(self):
+        # Clears both the in-memory cache (this session) and the on-disk
+        # cache, so the next play of every song does a fresh network fetch.
+        self._cache.clear()
+        clear_disk_cache()
+
+    def request(self, title: str, artist: str, duration_ms: int = 0):
         key = (title.lower(), artist.lower())
         if key in self._cache:
             self.lyrics_ready.emit(title, artist, self._cache[key])
@@ -152,11 +207,27 @@ class LyricsFetcher(QObject):
 
         self.lyrics_loading.emit(title, artist)
         threading.Thread(
-            target=self._fetch, args=(title, artist, key), daemon=True
+            target=self._fetch, args=(title, artist, duration_ms, key), daemon=True
         ).start()
 
-    def _fetch(self, title: str, artist: str, key):
-        result = _lrclib_lookup(title, artist)
+    def _fetch(self, title: str, artist: str, duration_ms: int, key):
+        # Prefer synced lyrics from either LRCLIB endpoint. /api/get is the
+        # most accurate match (track + artist + duration), but the exact entry
+        # it lands on sometimes only has plain lyrics while a different upload
+        # found via fuzzy search has synced ones - so if get is unsynced or
+        # missing, try search and take its result when it's synced. Only fall
+        # back to a plain result (get preferred, it's duration-matched) when
+        # neither source has synced lyrics.
+        get_result = _lrclib_get(title, artist, duration_ms)
+        if get_result is not None and get_result.synced:
+            result = get_result
+        else:
+            search_result = _lrclib_search(title, artist)
+            if search_result is not None and search_result.synced:
+                result = search_result
+            else:
+                result = get_result or search_result
+
         if result is not None:
             self._cache[key] = result
             _save_to_disk(key, result)
