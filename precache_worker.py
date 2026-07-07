@@ -8,11 +8,53 @@ import time
 from PySide6.QtCore import QObject, Signal
 
 from lyrics import precache_track
-from spotify_playlist import SpotifyClient, SpotifyError
+from spotify_playlist import (
+    _QUEUE_SCOPE,
+    SpotifyClient,
+    SpotifyError,
+)
 
 # Small gap between actual network fetches so we don't hammer LRCLIB (a free
 # community service). Cache hits don't sleep.
 _THROTTLE_S = 0.35
+
+
+class UpcomingPrecacher(QObject):
+    """Best-effort: while a song plays, peek the Spotify queue and pre-cache
+    the next track's lyrics so it's ready the instant the song changes - no
+    loading screen. Silent by design: needs a connected Spotify account with
+    the playback scope, and does nothing (never prompts) otherwise.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._busy = threading.Lock()
+
+    def peek_and_cache(self, client_id: str):
+        if not client_id:
+            return
+        if not self._busy.acquire(blocking=False):
+            return  # a previous peek is still running
+        threading.Thread(
+            target=self._run, args=(client_id,), daemon=True
+        ).start()
+
+    def _run(self, client_id: str):
+        try:
+            client = SpotifyClient(client_id)
+            # Only proceed with a cached token that already covers the queue
+            # scope, so we never open a browser in the background.
+            if not client.cached_token_has_scope(_QUEUE_SCOPE):
+                return
+            if not client.connect_silent():
+                return
+            upcoming = client.get_upcoming_tracks(limit=1)
+            for track in upcoming:
+                precache_track(track.title, track.artist, track.duration_ms)
+        except Exception:
+            pass  # best-effort; never disrupt playback
+        finally:
+            self._busy.release()
 
 
 class PlaylistPrecacher(QObject):

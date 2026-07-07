@@ -18,7 +18,10 @@ from spotipy.oauth2 import SpotifyPKCE
 
 # Must exactly match a Redirect URI registered on the Spotify app.
 REDIRECT_URI = "http://127.0.0.1:8888/callback"
-_SCOPE = "playlist-read-private playlist-read-collaborative"
+# playlist-read-* for pre-caching a whole playlist; user-read-playback-state
+# to read the play queue for pre-caching the upcoming song.
+_SCOPE = "playlist-read-private playlist-read-collaborative user-read-playback-state"
+_QUEUE_SCOPE = "user-read-playback-state"
 _TOKEN_CACHE = (
     Path(os.getenv("LOCALAPPDATA", str(Path.home())))
     / "SpotifyFloatingLyrics"
@@ -79,6 +82,55 @@ class SpotifyClient:
             return bool(token)
         except Exception:
             return False
+
+    def cached_token_has_scope(self, scope: str) -> bool:
+        """Whether the cached token already covers a scope, so we can use it
+        without re-prompting the browser for consent."""
+        try:
+            token = self._auth_manager().cache_handler.get_cached_token()
+            return bool(token) and scope in (token.get("scope") or "")
+        except Exception:
+            return False
+
+    def connect_silent(self) -> bool:
+        """Build the API client from a cached token only - refreshing it if
+        needed but never opening a browser. Returns True on success. Used for
+        best-effort background work (queue peeking) that must not interrupt
+        the user with a login prompt."""
+        if not self._client_id:
+            return False
+        try:
+            auth = self._auth_manager()
+            token = auth.cache_handler.get_cached_token()
+            if not token:
+                return False
+            if auth.is_token_expired(token):
+                token = auth.refresh_access_token(token["refresh_token"])
+            self._sp = Spotify(auth=token["access_token"])
+            return True
+        except Exception:
+            return False
+
+    def get_upcoming_tracks(self, limit: int = 1) -> List[PlaylistTrack]:
+        """Return the next few tracks from the user's play queue."""
+        if self._sp is None:
+            raise SpotifyError("Not connected to Spotify.")
+        data = self._sp.queue()
+        tracks: List[PlaylistTrack] = []
+        for track in (data.get("queue") or [])[:limit]:
+            name = track.get("name")
+            if not name:
+                continue
+            artists = track.get("artists") or []
+            artist = artists[0]["name"] if artists else ""
+            tracks.append(
+                PlaylistTrack(
+                    title=name,
+                    artist=artist,
+                    duration_ms=int(track.get("duration_ms") or 0),
+                )
+            )
+        return tracks
 
     def connect(self):
         """Authorize (opening the browser + a local 127.0.0.1:8888 listener on

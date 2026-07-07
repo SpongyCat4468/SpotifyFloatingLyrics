@@ -37,7 +37,7 @@ from lyrics import LyricsFetcher, LyricsResult
 from media_session import MediaSessionWatcher, NowPlaying
 from overlay import DEFAULT_OPACITY_PERCENT, DEFAULT_SCALE_PERCENT, OverlayWindow
 from position_tracker import PositionTracker
-from precache_worker import PlaylistPrecacher
+from precache_worker import PlaylistPrecacher, UpcomingPrecacher
 from settings_window import SettingsWindow
 from tray_icon import TrayIcon
 
@@ -71,6 +71,7 @@ class AppController(QObject):
         self.control_bar = ControlBar()
         self.tray_icon = TrayIcon()
         self.precacher = PlaylistPrecacher()
+        self.upcoming_precacher = UpcomingPrecacher()
 
         self.current_now_playing: NowPlaying | None = None
         self.current_lyrics: LyricsResult | None = None
@@ -186,14 +187,17 @@ class AppController(QObject):
 
     def _save_scale(self, percent: int):
         self._settings.setValue("overlay/scale", int(percent))
+        self._settings.sync()  # flush now, not just on (possibly abrupt) exit
 
     def _save_opacity(self, percent: int):
         self._settings.setValue("overlay/opacity", int(percent))
+        self._settings.sync()
 
     def _save_position(self):
         pos = self.overlay.pos()
         self._settings.setValue("overlay/pos_x", pos.x())
         self._settings.setValue("overlay/pos_y", pos.y())
+        self._settings.sync()
 
     def _sync_control_bar_position(self):
         if self.control_bar.isVisible():
@@ -208,6 +212,12 @@ class AppController(QObject):
         self.control_bar.set_playing(now_playing.is_playing)
         self.lyrics_fetcher.request(
             now_playing.title, now_playing.artist, now_playing.duration_ms
+        )
+        # Best-effort: pre-cache the next queued song's lyrics so it's ready
+        # instantly when this one ends (needs Spotify connected with the
+        # playback scope; silently does nothing otherwise).
+        self.upcoming_precacher.peek_and_cache(
+            self.settings_window.client_id_edit.text().strip()
         )
 
     def _on_state_updated(self, now_playing: NowPlaying):
