@@ -2,6 +2,9 @@
 and background opacity live. Opened from the tray icon.
 """
 
+import json
+import os
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
@@ -11,6 +14,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSlider,
@@ -26,6 +30,27 @@ from overlay import (
     MIN_OPACITY_PERCENT,
     MIN_SCALE_PERCENT,
 )
+
+_CONFIG_PATH = (
+    Path(os.getenv("LOCALAPPDATA", str(Path.home())))
+    / "SpotifyFloatingLyrics"
+    / "config.json"
+)
+
+
+def _load_config() -> dict:
+    try:
+        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_config(data: dict):
+    try:
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CONFIG_PATH.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
 
 _SLIDER_STYLE = """
     QSlider::groove:horizontal {
@@ -59,15 +84,29 @@ _SLIDER_STYLE = """
         background: #1DB954;
         border: 1px solid #1DB954;
     }
-    QPushButton#clearcache {
+    QPushButton#clearcache, QPushButton#precache {
         background-color: rgba(255,255,255,18);
         color: white;
         border: none;
         border-radius: 6px;
         padding: 7px;
     }
-    QPushButton#clearcache:hover {
+    QPushButton#clearcache:hover, QPushButton#precache:hover {
         background-color: rgba(255,255,255,32);
+    }
+    QPushButton#precache:disabled {
+        color: rgba(255,255,255,90);
+    }
+    QLineEdit {
+        background-color: rgba(255,255,255,15);
+        color: white;
+        border: 1px solid rgba(255,255,255,40);
+        border-radius: 6px;
+        padding: 5px 8px;
+        selection-background-color: #1DB954;
+    }
+    QLineEdit:focus {
+        border: 1px solid #1DB954;
     }
 """
 
@@ -105,6 +144,7 @@ class SettingsWindow(QWidget):
     opacity_changed = Signal(int)
     controls_toggled = Signal(bool)
     clear_cache_requested = Signal()
+    precache_requested = Signal(str, str)  # client_id, playlist_url
 
     def __init__(self):
         super().__init__()
@@ -180,6 +220,8 @@ class SettingsWindow(QWidget):
         self.clear_cache_button.clicked.connect(self._confirm_clear_cache)
         layout.addWidget(self.clear_cache_button)
 
+        self._build_precache_section(layout)
+
         self.close_button = QLabel("✕", self)
         self.close_button.setStyleSheet("color: rgba(255,255,255,140);")
         self.close_button.setFont(QFont("Segoe UI", 10))
@@ -201,6 +243,73 @@ class SettingsWindow(QWidget):
         row.addWidget(slider)
         row.addWidget(value_label)
         return row
+
+    def _build_precache_section(self, layout):
+        heading = QLabel("Pre-cache a playlist")
+        heading.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        layout.addWidget(heading)
+
+        hint = QLabel(
+            "Downloads lyrics for every song in a Spotify playlist ahead of "
+            "time. Needs a free Spotify Client ID (Developer Dashboard) with "
+            "redirect URI http://127.0.0.1:8888/callback."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: rgba(255,255,255,120);")
+        hint.setFont(QFont("Segoe UI", 8))
+        layout.addWidget(hint)
+
+        self.client_id_edit = QLineEdit()
+        self.client_id_edit.setPlaceholderText("Spotify Client ID")
+        self.client_id_edit.setText(_load_config().get("client_id", ""))
+        layout.addWidget(self.client_id_edit)
+
+        self.playlist_edit = QLineEdit()
+        self.playlist_edit.setPlaceholderText("Playlist link")
+        layout.addWidget(self.playlist_edit)
+
+        self.precache_button = QPushButton("Pre-cache lyrics")
+        self.precache_button.setObjectName("precache")
+        self.precache_button.setCursor(Qt.PointingHandCursor)
+        self.precache_button.clicked.connect(self._on_precache_clicked)
+        layout.addWidget(self.precache_button)
+
+        self.precache_status = QLabel("")
+        self.precache_status.setWordWrap(True)
+        self.precache_status.setStyleSheet("color: rgba(255,255,255,150);")
+        self.precache_status.setFont(QFont("Segoe UI", 8))
+        layout.addWidget(self.precache_status)
+
+    def _on_precache_clicked(self):
+        client_id = self.client_id_edit.text().strip()
+        playlist = self.playlist_edit.text().strip()
+        if not client_id:
+            self.precache_status.setText("Enter your Spotify Client ID first.")
+            return
+        if not playlist:
+            self.precache_status.setText("Paste a playlist link first.")
+            return
+        _save_config({"client_id": client_id})
+        self.precache_button.setEnabled(False)
+        self.precache_status.setText("Starting…")
+        self.precache_requested.emit(client_id, playlist)
+
+    # --- called by the controller as the background pre-cache progresses ---
+    def set_precache_progress(self, done: int, total: int, label: str):
+        if total > 0:
+            self.precache_status.setText(f"{done} / {total}   {label}")
+        else:
+            self.precache_status.setText(label)
+
+    def set_precache_finished(self, saved: int, cached: int, failed: int):
+        self.precache_button.setEnabled(True)
+        self.precache_status.setText(
+            f"Done — {saved} added, {cached} already cached, {failed} not found"
+        )
+
+    def set_precache_error(self, message: str):
+        self.precache_button.setEnabled(True)
+        self.precache_status.setText(message)
 
     def _on_scale_changed(self, value: int):
         self.size_value_label.setText(f"{value}%")

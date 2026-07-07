@@ -136,6 +136,46 @@ def _lrclib_search(title: str, artist: str) -> Optional["LyricsResult"]:
     return _result_from_lrclib_track(best_track)
 
 
+def _syncedlyrics_lookup(title: str, artist: str) -> Optional["LyricsResult"]:
+    """Last-resort lookup via the syncedlyrics library (its own multi-provider
+    fuzzy search), preferring synced over plain."""
+    search_term = f"{title} {artist}".strip()
+    try:
+        lrc = syncedlyrics.search(search_term, synced_only=True)
+        if lrc:
+            lines = parse_lrc(lrc)
+            if lines:
+                return LyricsResult(lines=lines, synced=True)
+        plain = syncedlyrics.search(search_term, plain_only=True)
+        if plain:
+            plain_lines = [(0, line) for line in plain.splitlines() if line.strip()]
+            if plain_lines:
+                return LyricsResult(lines=plain_lines, synced=False)
+    except Exception:
+        pass
+    return None
+
+
+def lookup_lyrics(title: str, artist: str, duration_ms: int) -> Optional["LyricsResult"]:
+    """Full lookup chain, preferring synced lyrics from whichever source has
+    them: LRCLIB /api/get (accurate, duration-matched) -> LRCLIB /api/search
+    (fuzzy) -> syncedlyrics library. Falls back to a plain result (get
+    preferred) only when no source offers synced lyrics. Pure/synchronous so
+    both the live fetcher and the playlist pre-cacher can share it.
+    """
+    get_result = _lrclib_get(title, artist, duration_ms)
+    if get_result is not None and get_result.synced:
+        return get_result
+    search_result = _lrclib_search(title, artist)
+    if search_result is not None and search_result.synced:
+        return search_result
+    return get_result or search_result or _syncedlyrics_lookup(title, artist)
+
+
+def _cache_key(title: str, artist: str) -> Tuple[str, str]:
+    return (title.lower(), artist.lower())
+
+
 def _cache_file_for(key: Tuple[str, str]) -> Path:
     digest = hashlib.sha1("|||".join(key).encode("utf-8")).hexdigest()
     return _CACHE_DIR / f"{digest}.json"
@@ -178,6 +218,20 @@ def clear_disk_cache() -> int:
     return removed
 
 
+def precache_track(title: str, artist: str, duration_ms: int) -> str:
+    """Look up one track's lyrics and write them to the on-disk cache, unless
+    already cached. Returns 'cached' (already present), 'saved' (fetched and
+    stored), or 'failed' (no lyrics found)."""
+    key = _cache_key(title, artist)
+    if _load_from_disk(key) is not None:
+        return "cached"
+    result = lookup_lyrics(title, artist, duration_ms)
+    if result is None:
+        return "failed"
+    _save_to_disk(key, result)
+    return "saved"
+
+
 class LyricsFetcher(QObject):
     lyrics_loading = Signal(str, str)
     lyrics_ready = Signal(str, str, object)  # title, artist, LyricsResult
@@ -194,7 +248,7 @@ class LyricsFetcher(QObject):
         clear_disk_cache()
 
     def request(self, title: str, artist: str, duration_ms: int = 0):
-        key = (title.lower(), artist.lower())
+        key = _cache_key(title, artist)
         if key in self._cache:
             self.lyrics_ready.emit(title, artist, self._cache[key])
             return
@@ -211,50 +265,10 @@ class LyricsFetcher(QObject):
         ).start()
 
     def _fetch(self, title: str, artist: str, duration_ms: int, key):
-        # Prefer synced lyrics from either LRCLIB endpoint. /api/get is the
-        # most accurate match (track + artist + duration), but the exact entry
-        # it lands on sometimes only has plain lyrics while a different upload
-        # found via fuzzy search has synced ones - so if get is unsynced or
-        # missing, try search and take its result when it's synced. Only fall
-        # back to a plain result (get preferred, it's duration-matched) when
-        # neither source has synced lyrics.
-        get_result = _lrclib_get(title, artist, duration_ms)
-        if get_result is not None and get_result.synced:
-            result = get_result
-        else:
-            search_result = _lrclib_search(title, artist)
-            if search_result is not None and search_result.synced:
-                result = search_result
-            else:
-                result = get_result or search_result
-
-        if result is not None:
-            self._cache[key] = result
-            _save_to_disk(key, result)
-            self.lyrics_ready.emit(title, artist, result)
-            return
-
-        search_term = f"{title} {artist}".strip()
-        result = None
-        try:
-            lrc = syncedlyrics.search(search_term, synced_only=True)
-            if lrc:
-                lrc_lines = parse_lrc(lrc)
-                if lrc_lines:
-                    result = LyricsResult(lines=lrc_lines, synced=True)
-            if result is None:
-                plain = syncedlyrics.search(search_term, plain_only=True)
-                if plain:
-                    plain_lines = [(0, line) for line in plain.splitlines() if line.strip()]
-                    if plain_lines:
-                        result = LyricsResult(lines=plain_lines, synced=False)
-        except Exception:
-            result = None
-
+        result = lookup_lyrics(title, artist, duration_ms)
         if result is None:
             self.lyrics_failed.emit(title, artist)
             return
-
         self._cache[key] = result
         _save_to_disk(key, result)
         self.lyrics_ready.emit(title, artist, result)
