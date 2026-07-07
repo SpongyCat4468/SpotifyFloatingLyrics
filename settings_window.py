@@ -156,6 +156,7 @@ class SettingsWindow(QWidget):
     accent_color_changed = Signal(QColor)
     clear_cache_requested = Signal()
     precache_requested = Signal(str, str)  # client_id, playlist_url
+    startup_toggled = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -215,6 +216,10 @@ class SettingsWindow(QWidget):
         self.controls_checkbox = QCheckBox("Show playback controls")
         self.controls_checkbox.toggled.connect(self.controls_toggled)
         layout.addWidget(self.controls_checkbox)
+
+        self.startup_checkbox = QCheckBox("Start with Windows")
+        self.startup_checkbox.toggled.connect(self.startup_toggled)
+        layout.addWidget(self.startup_checkbox)
 
         # --- Color pickers ---
         layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
@@ -371,6 +376,13 @@ class SettingsWindow(QWidget):
         if slider_attr:
             setattr(self, slider_attr, slider)
         return row
+
+    def set_startup_checked(self, checked: bool):
+        """Reflect the current 'launch at login' state without re-triggering
+        a registry write."""
+        self.startup_checkbox.blockSignals(True)
+        self.startup_checkbox.setChecked(checked)
+        self.startup_checkbox.blockSignals(False)
 
     def set_scale_value(self, percent: int):
         """Set the Size slider (used to restore the saved size on launch)."""

@@ -40,6 +40,7 @@ from position_tracker import PositionTracker
 from precache_worker import PlaylistPrecacher, UpcomingPrecacher
 from settings_window import SettingsWindow
 from tray_icon import TrayIcon
+import startup
 
 
 def _spread_evenly(result: LyricsResult, duration_ms: int) -> LyricsResult:
@@ -75,6 +76,9 @@ class AppController(QObject):
 
         self.current_now_playing: NowPlaying | None = None
         self.current_lyrics: LyricsResult | None = None
+        # When started hidden (launch-at-login), reveal the overlay the first
+        # time a song actually plays rather than sitting empty on the desktop.
+        self._auto_show_pending = False
 
         self.watcher.track_changed.connect(self._on_track_changed)
         self.watcher.state_updated.connect(self._on_state_updated)
@@ -139,6 +143,9 @@ class AppController(QObject):
         self.settings_window.opacity_changed.connect(self._save_opacity)
         self.overlay.drag_finished.connect(self._save_position)
 
+        self.settings_window.set_startup_checked(startup.is_enabled())
+        self.settings_window.startup_toggled.connect(startup.set_enabled)
+
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
         self.control_bar.play_pause_clicked.connect(self.watcher.toggle_play_pause)
@@ -151,12 +158,19 @@ class AppController(QObject):
         self.tick_timer.timeout.connect(self._tick)
         self.tick_timer.start()
 
-    def start(self):
-        self.overlay.show()
+    def start(self, hidden: bool = False):
+        if hidden:
+            # Launch quietly to the tray; the overlay appears once a song
+            # plays (see _on_track_changed) or when shown from the tray.
+            self._auto_show_pending = True
+            self.tray_icon.set_visible_state(False)
+        else:
+            self.overlay.show()
         self.tray_icon.show()
         self.watcher.start()
 
     def _toggle_overlay_visibility(self):
+        self._auto_show_pending = False  # user is in control now
         visible = not self.overlay.isVisible()
         self.overlay.setVisible(visible)
         self.tray_icon.set_visible_state(visible)
@@ -204,6 +218,10 @@ class AppController(QObject):
             self.control_bar.follow(self.overlay.geometry())
 
     def _on_track_changed(self, now_playing: NowPlaying):
+        if self._auto_show_pending:
+            self._auto_show_pending = False
+            self.overlay.show()
+            self.tray_icon.set_visible_state(True)
         self.current_now_playing = now_playing
         self.current_lyrics = None
         self.position_tracker.update(now_playing.position_ms, now_playing.is_playing, now_playing.duration_ms)
@@ -261,7 +279,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     controller = AppController()
-    controller.start()
+    controller.start(hidden="--hidden" in sys.argv)
 
     sys.exit(app.exec())
 
