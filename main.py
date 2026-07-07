@@ -35,7 +35,7 @@ from PySide6.QtWidgets import QApplication
 from control_bar import ControlBar
 from lyrics import LyricsFetcher, LyricsResult
 from media_session import MediaSessionWatcher, NowPlaying
-from overlay import OverlayWindow
+from overlay import DEFAULT_OPACITY_PERCENT, DEFAULT_SCALE_PERCENT, OverlayWindow
 from position_tracker import PositionTracker
 from precache_worker import PlaylistPrecacher
 from settings_window import SettingsWindow
@@ -120,6 +120,24 @@ class AppController(QObject):
         self.tray_icon.set_accent_color(accent_color)
         self.settings_window.set_colors(lyrics_color, bg_color, accent_color)
 
+        # Restore the overlay's saved size, opacity, and on-screen position so
+        # it reopens exactly where (and how big) the user last left it. Size is
+        # applied before position: it's set while the overlay is still hidden
+        # (so it resizes without re-centering), then moved to the saved spot.
+        self._settings = settings
+        saved_scale = int(settings.value("overlay/scale", DEFAULT_SCALE_PERCENT))
+        saved_opacity = int(settings.value("overlay/opacity", DEFAULT_OPACITY_PERCENT))
+        self.settings_window.set_scale_value(saved_scale)
+        self.settings_window.set_opacity_value(saved_opacity)
+        saved_x = settings.value("overlay/pos_x")
+        saved_y = settings.value("overlay/pos_y")
+        if saved_x is not None and saved_y is not None:
+            self.overlay.move(int(saved_x), int(saved_y))
+
+        self.settings_window.scale_changed.connect(self._save_scale)
+        self.settings_window.opacity_changed.connect(self._save_opacity)
+        self.overlay.drag_finished.connect(self._save_position)
+
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
         self.control_bar.play_pause_clicked.connect(self.watcher.toggle_play_pause)
@@ -165,6 +183,17 @@ class AppController(QObject):
         self.control_bar.set_accent_color(color)
         self.tray_icon.set_accent_color(color)
         QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("accent/color", color)
+
+    def _save_scale(self, percent: int):
+        self._settings.setValue("overlay/scale", int(percent))
+
+    def _save_opacity(self, percent: int):
+        self._settings.setValue("overlay/opacity", int(percent))
+
+    def _save_position(self):
+        pos = self.overlay.pos()
+        self._settings.setValue("overlay/pos_x", pos.x())
+        self._settings.setValue("overlay/pos_y", pos.y())
 
     def _sync_control_bar_position(self):
         if self.control_bar.isVisible():
