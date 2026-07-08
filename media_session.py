@@ -41,6 +41,7 @@ class MediaSessionWatcher(QObject):
         self._thread: Optional[threading.Thread] = None
         self._last_key = None  # (title, artist) used to detect track changes
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._manager = None  # cached SMTC session manager, reused across polls
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -125,8 +126,18 @@ class MediaSessionWatcher(QObject):
             await asyncio.sleep(self._poll_interval)
 
     async def _find_spotify_session(self) -> Optional[GlobalSystemMediaTransportControlsSession]:
-        manager = await MediaManager.request_async()
-        for candidate in manager.get_sessions():
+        # Reuse the previously-acquired manager; re-requesting it from Windows
+        # on every poll is needless WinRT overhead. If a cached manager ever
+        # throws (e.g. the media service restarted), drop it and re-acquire
+        # next time.
+        try:
+            if self._manager is None:
+                self._manager = await MediaManager.request_async()
+            sessions = self._manager.get_sessions()
+        except Exception:
+            self._manager = None
+            return None
+        for candidate in sessions:
             if "spotify" in candidate.source_app_user_model_id.lower():
                 return candidate
         return None

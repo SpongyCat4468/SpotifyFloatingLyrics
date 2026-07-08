@@ -126,6 +126,7 @@ class OverlayWindow(QWidget):
         self._drag_offset: Optional[QPoint] = None
         self._attached = False
         self._approximate = False
+        self._dimmed = False
         self._lyrics_color = QColor(Qt.white)
         self._bg_color = QColor(18, 18, 18)
         self._acrylic_enabled = False
@@ -309,6 +310,20 @@ class OverlayWindow(QWidget):
         self._lyrics_color = color
         for item in self._items:
             item.setColor(color)
+        self._apply_title_color()
+        # Re-emit the stylesheet so the general QLabel colour tracks the
+        # lyrics colour too (matters for the light theme, where white text
+        # would vanish on a light card).
+        if hasattr(self, "_opacity_percent"):
+            self.set_opacity(self._opacity_percent)
+
+    def _apply_title_color(self):
+        # The track title sits above the lyrics; keep it a dimmed tint of the
+        # lyrics colour so it stays legible under both dark and light themes.
+        c = self._lyrics_color
+        self.title_label.setStyleSheet(
+            f"color: rgba({c.red()}, {c.green()}, {c.blue()}, 140); background: transparent;"
+        )
 
     def set_bg_color(self, color: QColor):
         self._bg_color = color
@@ -319,6 +334,7 @@ class OverlayWindow(QWidget):
         alpha = round(255 * percent / 100)
         bottom_radius = 0 if self._attached else 16
         r, g, b = self._bg_color.red(), self._bg_color.green(), self._bg_color.blue()
+        lr, lg, lb = self._lyrics_color.red(), self._lyrics_color.green(), self._lyrics_color.blue()
         self.setStyleSheet(
             f"""
             #card {{
@@ -329,7 +345,7 @@ class OverlayWindow(QWidget):
                 border-bottom-right-radius: {bottom_radius}px;
             }}
             QLabel {{
-                color: white;
+                color: rgba({lr}, {lg}, {lb}, 255);
                 background: transparent;
             }}
             #unsynced {{
@@ -389,6 +405,25 @@ class OverlayWindow(QWidget):
         if approximate:
             self.unsynced_label.adjustSize()
             self._position_unsynced_badge()
+
+    def set_dimmed(self, dimmed: bool):
+        # Fade the whole overlay while playback is paused so it recedes
+        # visually without disappearing. Applied on top of the card's own
+        # background opacity via the window's global alpha. Guarded: changing
+        # window opacity forces the compositor to recomposite this layered
+        # window, so only touch it when the state actually flips (this is
+        # called on every ~0.5s poll).
+        if dimmed == self._dimmed:
+            return
+        self._dimmed = dimmed
+        self.setWindowOpacity(0.55 if dimmed else 1.0)
+
+    def current_line_text(self) -> str:
+        # The lyric line currently highlighted, or "" when there's nothing to
+        # copy (idle, still loading, or no lyrics found).
+        if self._lines and 0 <= self._current_index < len(self._lines):
+            return self._lines[self._current_index][1]
+        return ""
 
     def show_idle(self, message: str):
         self.set_approximate(False)

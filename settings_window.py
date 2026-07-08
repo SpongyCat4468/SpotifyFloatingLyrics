@@ -38,6 +38,12 @@ _CONFIG_PATH = (
     / "config.json"
 )
 
+# Preset colour sets for the Dark (default) / Light theme buttons: lyrics
+# text colour, card background, and UI accent. Light keeps the Spotify green
+# accent, which reads fine on a pale card.
+_DARK_THEME = {"lyrics": QColor(Qt.white), "bg": QColor(18, 18, 18), "accent": QColor("#1DB954")}
+_LIGHT_THEME = {"lyrics": QColor(30, 30, 30), "bg": QColor(245, 245, 245), "accent": QColor("#1DB954")}
+
 
 def _load_config() -> dict:
     try:
@@ -228,6 +234,9 @@ class SettingsWindow(QWidget):
         self.startup_checkbox.toggled.connect(self.startup_toggled)
         layout.addWidget(self.startup_checkbox)
 
+        # --- Theme presets ---
+        layout.addLayout(self._make_theme_row())
+
         # --- Color pickers ---
         layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
         layout.addLayout(self._make_color_row("Background", self._bg_color, "bg"))
@@ -274,11 +283,40 @@ class SettingsWindow(QWidget):
         setattr(self, f"_{target}_hex", hex_label)
         return row
 
+    def _make_theme_row(self):
+        row = QHBoxLayout()
+        row.setSpacing(10)
+
+        label = QLabel("Theme")
+        label.setFixedWidth(70)
+        row.addWidget(label)
+
+        dark_btn = QPushButton("Dark")
+        dark_btn.setObjectName("preset")
+        dark_btn.setCursor(Qt.PointingHandCursor)
+        dark_btn.clicked.connect(lambda: self._apply_theme(_DARK_THEME))
+
+        light_btn = QPushButton("Light")
+        light_btn.setObjectName("preset")
+        light_btn.setCursor(Qt.PointingHandCursor)
+        light_btn.clicked.connect(lambda: self._apply_theme(_LIGHT_THEME))
+
+        row.addWidget(dark_btn)
+        row.addWidget(light_btn)
+        row.addStretch()
+        return row
+
     def _pick_color(self, target: str):
         current = getattr(self, f"_{target}_color")
         color = QColorDialog.getColor(current, self, f"Choose {target.title()} Color")
         if not color.isValid():
             return
+        self._apply_color(target, color)
+
+    def _apply_color(self, target: str, color: QColor):
+        # Update the internal colour, its preview swatch and hex label, then
+        # notify the app. Shared by the manual colour picker and the theme
+        # preset buttons.
         setattr(self, f"_{target}_color", color)
         preview: QLabel = getattr(self, f"_{target}_preview")
         hex_label: QLabel = getattr(self, f"_{target}_hex")
@@ -295,6 +333,10 @@ class SettingsWindow(QWidget):
         signal_map[target].emit(color)
         if target == "accent":
             self._update_accent_style()
+
+    def _apply_theme(self, theme: dict):
+        for target in ("lyrics", "bg", "accent"):
+            self._apply_color(target, theme[target])
 
     def _update_accent_style(self):
         accent = self._accent_color.name()
@@ -347,6 +389,16 @@ class SettingsWindow(QWidget):
                 padding: 7px;
             }}
             QPushButton#clearcache:hover {{
+                background-color: rgba(255,255,255,32);
+            }}
+            QPushButton#preset {{
+                background-color: rgba(255,255,255,18);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 16px;
+            }}
+            QPushButton#preset:hover {{
                 background-color: rgba(255,255,255,32);
             }}
             """

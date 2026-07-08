@@ -79,6 +79,9 @@ class AppController(QObject):
         # When started hidden (launch-at-login), reveal the overlay the first
         # time a song actually plays rather than sitting empty on the desktop.
         self._auto_show_pending = False
+        # True while the overlay is hidden by the idle auto-hide (as opposed to
+        # a manual tray hide), so we know whether to bring it back on resume.
+        self._hidden_by_idle = False
 
         self.watcher.track_changed.connect(self._on_track_changed)
         self.watcher.state_updated.connect(self._on_state_updated)
@@ -90,6 +93,7 @@ class AppController(QObject):
 
         self.tray_icon.toggle_requested.connect(self._toggle_overlay_visibility)
         self.tray_icon.movable_toggled.connect(self.overlay.set_movable)
+        self.tray_icon.copy_line_requested.connect(self._copy_current_line)
         self.tray_icon.settings_requested.connect(self.settings_window.open)
         self.tray_icon.quit_requested.connect(QApplication.instance().quit)
 
@@ -109,6 +113,10 @@ class AppController(QObject):
         self.settings_window.lyrics_color_changed.connect(self._on_lyrics_color_changed)
         self.settings_window.bg_color_changed.connect(self._on_bg_color_changed)
         self.settings_window.accent_color_changed.connect(self._on_accent_color_changed)
+        # The control bar mirrors the overlay's colours so the two windows
+        # read as one card under either theme.
+        self.settings_window.lyrics_color_changed.connect(self.control_bar.set_fg_color)
+        self.settings_window.bg_color_changed.connect(self.control_bar.set_bg_color)
 
         settings = QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics")
         lyrics_color = settings.value("lyrics/color", QColor(Qt.white))
@@ -122,6 +130,8 @@ class AppController(QObject):
             accent_color = QColor(accent_color)
         self.overlay.set_lyrics_color(lyrics_color)
         self.overlay.set_bg_color(bg_color)
+        self.control_bar.set_fg_color(lyrics_color)
+        self.control_bar.set_bg_color(bg_color)
         self.control_bar.set_accent_color(accent_color)
         self.tray_icon.set_accent_color(accent_color)
         self.settings_window.set_colors(lyrics_color, bg_color, accent_color)
@@ -163,6 +173,13 @@ class AppController(QObject):
         self.tick_timer.timeout.connect(self._tick)
         self.tick_timer.start()
 
+        # Auto-hide the overlay after 30s of no Spotify session, restoring it
+        # when playback resumes (single-shot; re-armed each idle stretch).
+        self.idle_timer = QTimer()
+        self.idle_timer.setSingleShot(True)
+        self.idle_timer.setInterval(30_000)
+        self.idle_timer.timeout.connect(self._hide_for_idle)
+
     def start(self, hidden: bool = False):
         if hidden:
             # Launch quietly to the tray; the overlay appears once a song
@@ -174,8 +191,17 @@ class AppController(QObject):
         self.tray_icon.show()
         self.watcher.start()
 
+    def _copy_current_line(self):
+        text = self.overlay.current_line_text()
+        if text:
+            QApplication.clipboard().setText(text)
+
     def _toggle_overlay_visibility(self):
         self._auto_show_pending = False  # user is in control now
+        # A manual show/hide takes over from the idle auto-hide: drop its
+        # pending timer and "we hid it" flag so the two don't fight.
+        self.idle_timer.stop()
+        self._hidden_by_idle = False
         visible = not self.overlay.isVisible()
         self.overlay.setVisible(visible)
         self.tray_icon.set_visible_state(visible)
@@ -229,6 +255,7 @@ class AppController(QObject):
             self.control_bar.follow(self.overlay.geometry())
 
     def _on_track_changed(self, now_playing: NowPlaying):
+        self._resume_from_idle()
         if self._auto_show_pending:
             self._auto_show_pending = False
             self.overlay.show()
@@ -238,6 +265,7 @@ class AppController(QObject):
         self.position_tracker.update(now_playing.position_ms, now_playing.is_playing, now_playing.duration_ms)
         self.overlay.set_track_info(now_playing.title, now_playing.artist)
         self.overlay.set_approximate(False)  # reset until lyrics arrive
+        self.overlay.set_dimmed(not now_playing.is_playing)
         self.control_bar.set_playing(now_playing.is_playing)
         self.lyrics_fetcher.request(
             now_playing.title, now_playing.artist, now_playing.duration_ms
@@ -250,14 +278,46 @@ class AppController(QObject):
         )
 
     def _on_state_updated(self, now_playing: NowPlaying):
+        self._resume_from_idle()
         self.current_now_playing = now_playing
         self.position_tracker.update(now_playing.position_ms, now_playing.is_playing, now_playing.duration_ms)
+        self.overlay.set_dimmed(not now_playing.is_playing)
         self.control_bar.set_playing(now_playing.is_playing)
 
     def _on_no_session(self):
         self.current_now_playing = None
         self.current_lyrics = None
         self.overlay.show_idle("Waiting for Spotify...")
+        self.overlay.set_dimmed(False)
+        # Arm the auto-hide once per idle stretch, and only while the overlay
+        # is actually showing (never fight a manual hide or a hidden launch).
+        if (
+            self.overlay.isVisible()
+            and not self._auto_show_pending
+            and not self._hidden_by_idle
+            and not self.idle_timer.isActive()
+        ):
+            self.idle_timer.start()
+
+    def _resume_from_idle(self):
+        # A live Spotify session cancels any pending auto-hide, and brings the
+        # overlay back if the auto-hide was what put it away.
+        self.idle_timer.stop()
+        if self._hidden_by_idle:
+            self._hidden_by_idle = False
+            self.overlay.setVisible(True)
+            self.tray_icon.set_visible_state(True)
+            if self.settings_window.controls_checkbox.isChecked():
+                self.control_bar.setVisible(True)
+                self.control_bar.follow(self.overlay.geometry())
+
+    def _hide_for_idle(self):
+        if not self.overlay.isVisible():
+            return
+        self._hidden_by_idle = True
+        self.overlay.setVisible(False)
+        self.control_bar.setVisible(False)
+        self.tray_icon.set_visible_state(False)
 
     def _on_lyrics_loading(self, _title, _artist):
         self.overlay.show_status("Loading lyrics...")
@@ -278,7 +338,10 @@ class AppController(QObject):
         if self.current_now_playing is None:
             return
         position_ms = self.position_tracker.estimated_position_ms()
-        self.control_bar.set_progress(position_ms, self.current_now_playing.duration_ms)
+        # The control bar is an opt-in, separate translucent window; only feed
+        # it (which repaints its slider/labels) when it's actually shown.
+        if self.control_bar.isVisible():
+            self.control_bar.set_progress(position_ms, self.current_now_playing.duration_ms)
         if self.current_lyrics is not None:
             self.overlay.update_position(position_ms)
 
