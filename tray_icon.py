@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 class TrayIcon(QSystemTrayIcon):
     toggle_requested = Signal()
     movable_toggled = Signal(bool)
+    copy_line_requested = Signal()
     settings_requested = Signal()
     quit_requested = Signal()
 
@@ -28,6 +29,10 @@ class TrayIcon(QSystemTrayIcon):
         self.movable_action = menu.addAction("Move Overlay")
         self.movable_action.setCheckable(True)
         self.movable_action.toggled.connect(self.movable_toggled)
+
+        menu.addSeparator()
+        copy_line_action = menu.addAction("Copy current line")
+        copy_line_action.triggered.connect(self.copy_line_requested)
 
         menu.addSeparator()
         settings_action = menu.addAction("Settings...")
