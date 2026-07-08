@@ -7,6 +7,8 @@ with whatever's underneath it.
 import ctypes
 from typing import Optional
 
+from win32_effect import remove_background_effect, set_acrylic_effect
+
 from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QFrame, QGraphicsObject, QGraphicsScene, QGraphicsView, QLabel, QVBoxLayout, QWidget
@@ -126,6 +128,7 @@ class OverlayWindow(QWidget):
         self._approximate = False
         self._lyrics_color = QColor(Qt.white)
         self._bg_color = QColor(18, 18, 18)
+        self._acrylic_enabled = False
         self._build_ui()
         self.set_opacity(DEFAULT_OPACITY_PERCENT)
         self.set_scale(DEFAULT_SCALE_PERCENT)
@@ -141,7 +144,20 @@ class OverlayWindow(QWidget):
         super().showEvent(event)
         # winId() forces native window creation, needed before the ctypes
         # call below can target a real HWND.
-        _set_native_click_through(int(self.winId()), self._click_through)
+        hwnd = int(self.winId())
+        _set_native_click_through(hwnd, self._click_through)
+        if self._acrylic_enabled:
+            set_acrylic_effect(hwnd)
+
+    def set_acrylic(self, enabled: bool):
+        self._acrylic_enabled = enabled
+        if not self.isVisible():
+            return
+        hwnd = int(self.winId())
+        if enabled:
+            set_acrylic_effect(hwnd)
+        else:
+            remove_background_effect(hwnd)
 
     def set_movable(self, movable: bool):
         self._click_through = not movable

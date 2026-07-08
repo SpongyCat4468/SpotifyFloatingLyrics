@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from win32_effect import remove_background_effect, set_acrylic_effect
 from PySide6.QtGui import QColor, QFont, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -151,6 +152,7 @@ class SettingsWindow(QWidget):
     scale_changed = Signal(int)
     opacity_changed = Signal(int)
     controls_toggled = Signal(bool)
+    acrylic_toggled = Signal(bool)
     lyrics_color_changed = Signal(QColor)
     bg_color_changed = Signal(QColor)
     accent_color_changed = Signal(QColor)
@@ -168,6 +170,7 @@ class SettingsWindow(QWidget):
         self._lyrics_color = QColor(Qt.white)
         self._bg_color = QColor(18, 18, 18)
         self._accent_color = QColor("#1DB954")
+        self._acrylic_enabled = False
         self._build_ui()
         # Size to exactly fit the content so there's no dead space below the
         # last control, rather than the fixed height above.
@@ -212,6 +215,10 @@ class SettingsWindow(QWidget):
                 slider_attr="_opacity_slider",
             )
         )
+
+        self.acrylic_checkbox = QCheckBox("Acrylic effect (Win10+)")
+        self.acrylic_checkbox.toggled.connect(self.acrylic_toggled)
+        layout.addWidget(self.acrylic_checkbox)
 
         self.controls_checkbox = QCheckBox("Show playback controls")
         self.controls_checkbox.toggled.connect(self.controls_toggled)
@@ -503,6 +510,21 @@ class SettingsWindow(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._acrylic_enabled:
+            set_acrylic_effect(int(self.winId()))
+
+    def set_acrylic(self, enabled: bool):
+        self._acrylic_enabled = enabled
+        if not self.isVisible():
+            return
+        hwnd = int(self.winId())
+        if enabled:
+            set_acrylic_effect(hwnd)
+        else:
+            remove_background_effect(hwnd)
 
     # --- dragging: unlike the overlay, this is a normal interactive window ---
     def mousePressEvent(self, event: QMouseEvent):
