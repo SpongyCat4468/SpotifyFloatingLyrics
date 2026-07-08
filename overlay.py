@@ -7,7 +7,7 @@ with whatever's underneath it.
 import ctypes
 from typing import Optional
 
-from win32_effect import remove_background_effect, set_acrylic_effect
+from win32_effect import color_gradient, remove_background_effect, set_acrylic_effect
 
 from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QMouseEvent, QPainter
@@ -148,7 +148,14 @@ class OverlayWindow(QWidget):
         hwnd = int(self.winId())
         _set_native_click_through(hwnd, self._click_through)
         if self._acrylic_enabled:
-            set_acrylic_effect(hwnd)
+            set_acrylic_effect(hwnd, self._acrylic_gradient())
+
+    def _acrylic_gradient(self) -> str:
+        # Tint the acrylic with the current background colour so the frosted
+        # look matches the theme; a fixed dark tint would leave light themes
+        # looking muddy and under-drawn.
+        c = self._bg_color
+        return color_gradient(c.red(), c.green(), c.blue())
 
     def set_acrylic(self, enabled: bool):
         self._acrylic_enabled = enabled
@@ -156,7 +163,7 @@ class OverlayWindow(QWidget):
             return
         hwnd = int(self.winId())
         if enabled:
-            set_acrylic_effect(hwnd)
+            set_acrylic_effect(hwnd, self._acrylic_gradient())
         else:
             remove_background_effect(hwnd)
 
@@ -328,6 +335,9 @@ class OverlayWindow(QWidget):
     def set_bg_color(self, color: QColor):
         self._bg_color = color
         self.set_opacity(self._opacity_percent)
+        # Keep the acrylic tint in step with a theme/background change.
+        if self._acrylic_enabled and self.isVisible():
+            set_acrylic_effect(int(self.winId()), self._acrylic_gradient())
 
     def set_opacity(self, percent: int):
         self._opacity_percent = percent

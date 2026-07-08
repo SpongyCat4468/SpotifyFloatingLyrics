@@ -10,7 +10,7 @@ these controls must accept clicks.
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
-from win32_effect import remove_background_effect, set_acrylic_effect
+from win32_effect import color_gradient, remove_background_effect, set_acrylic_effect
 
 _BASE_BUTTON_SIZE = 30
 _BASE_ICON_SIZE = 12
@@ -193,6 +193,9 @@ class ControlBar(QWidget):
     def set_bg_color(self, color: QColor):
         self._bg_color = color
         self.set_opacity(self._opacity_percent)
+        # Keep the acrylic tint in step with a theme/background change.
+        if self._acrylic_enabled and self.isVisible():
+            set_acrylic_effect(int(self.winId()), self._acrylic_gradient())
 
     def set_fg_color(self, color: QColor):
         # The overlay's lyrics colour doubles as this strip's foreground so
@@ -272,7 +275,13 @@ class ControlBar(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         if self._acrylic_enabled:
-            set_acrylic_effect(int(self.winId()))
+            set_acrylic_effect(int(self.winId()), self._acrylic_gradient())
+
+    def _acrylic_gradient(self) -> str:
+        # Match the acrylic tint to the current background colour so the strip
+        # frosts to the same theme as the overlay above it.
+        c = self._bg_color
+        return color_gradient(c.red(), c.green(), c.blue())
 
     def set_acrylic(self, enabled: bool):
         self._acrylic_enabled = enabled
@@ -280,6 +289,6 @@ class ControlBar(QWidget):
             return
         hwnd = int(self.winId())
         if enabled:
-            set_acrylic_effect(hwnd)
+            set_acrylic_effect(hwnd, self._acrylic_gradient())
         else:
             remove_background_effect(hwnd)

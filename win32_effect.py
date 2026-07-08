@@ -34,6 +34,17 @@ _set_comp_attr = _user32.SetWindowCompositionAttribute
 _set_comp_attr.restype = c_bool
 _set_comp_attr.argtypes = [c_int, POINTER(_WCA_DATA)]
 
+# Default tint opacity for the acrylic layer (the AA in RRGGBBAA). Matches the
+# original hard-coded "12121299".
+ACRYLIC_TINT_ALPHA = 0x99
+
+
+def color_gradient(r: int, g: int, b: int, alpha: int = ACRYLIC_TINT_ALPHA) -> str:
+    """Build the RRGGBBAA gradient string set_acrylic_effect expects from an
+    RGB colour, so the acrylic tint can follow the current theme instead of
+    always being dark."""
+    return f"{r:02X}{g:02X}{b:02X}{alpha:02X}"
+
 
 def set_acrylic_effect(
     hwnd: int,
