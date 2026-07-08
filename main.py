@@ -35,11 +35,12 @@ from PySide6.QtWidgets import QApplication
 from control_bar import ControlBar
 from lyrics import LyricsFetcher, LyricsResult
 from media_session import MediaSessionWatcher, NowPlaying
-from overlay import OverlayWindow
+from overlay import DEFAULT_OPACITY_PERCENT, DEFAULT_SCALE_PERCENT, OverlayWindow
 from position_tracker import PositionTracker
-from precache_worker import PlaylistPrecacher
+from precache_worker import PlaylistPrecacher, UpcomingPrecacher
 from settings_window import SettingsWindow
 from tray_icon import TrayIcon
+import startup
 
 
 def _spread_evenly(result: LyricsResult, duration_ms: int) -> LyricsResult:
@@ -71,9 +72,13 @@ class AppController(QObject):
         self.control_bar = ControlBar()
         self.tray_icon = TrayIcon()
         self.precacher = PlaylistPrecacher()
+        self.upcoming_precacher = UpcomingPrecacher()
 
         self.current_now_playing: NowPlaying | None = None
         self.current_lyrics: LyricsResult | None = None
+        # When started hidden (launch-at-login), reveal the overlay the first
+        # time a song actually plays rather than sitting empty on the desktop.
+        self._auto_show_pending = False
 
         self.watcher.track_changed.connect(self._on_track_changed)
         self.watcher.state_updated.connect(self._on_state_updated)
@@ -121,6 +126,27 @@ class AppController(QObject):
         self.tray_icon.set_accent_color(accent_color)
         self.settings_window.set_colors(lyrics_color, bg_color, accent_color)
 
+        # Restore the overlay's saved size, opacity, and on-screen position so
+        # it reopens exactly where (and how big) the user last left it. Size is
+        # applied before position: it's set while the overlay is still hidden
+        # (so it resizes without re-centering), then moved to the saved spot.
+        self._settings = settings
+        saved_scale = int(settings.value("overlay/scale", DEFAULT_SCALE_PERCENT))
+        saved_opacity = int(settings.value("overlay/opacity", DEFAULT_OPACITY_PERCENT))
+        self.settings_window.set_scale_value(saved_scale)
+        self.settings_window.set_opacity_value(saved_opacity)
+        saved_x = settings.value("overlay/pos_x")
+        saved_y = settings.value("overlay/pos_y")
+        if saved_x is not None and saved_y is not None:
+            self.overlay.move(int(saved_x), int(saved_y))
+
+        self.settings_window.scale_changed.connect(self._save_scale)
+        self.settings_window.opacity_changed.connect(self._save_opacity)
+        self.overlay.drag_finished.connect(self._save_position)
+
+        self.settings_window.set_startup_checked(startup.is_enabled())
+        self.settings_window.startup_toggled.connect(startup.set_enabled)
+
         acrylic = settings.value("window/acrylic", False, type=bool)
         self.settings_window.acrylic_checkbox.setChecked(acrylic)
         self._on_acrylic_toggled(acrylic)
@@ -137,12 +163,19 @@ class AppController(QObject):
         self.tick_timer.timeout.connect(self._tick)
         self.tick_timer.start()
 
-    def start(self):
-        self.overlay.show()
+    def start(self, hidden: bool = False):
+        if hidden:
+            # Launch quietly to the tray; the overlay appears once a song
+            # plays (see _on_track_changed) or when shown from the tray.
+            self._auto_show_pending = True
+            self.tray_icon.set_visible_state(False)
+        else:
+            self.overlay.show()
         self.tray_icon.show()
         self.watcher.start()
 
     def _toggle_overlay_visibility(self):
+        self._auto_show_pending = False  # user is in control now
         visible = not self.overlay.isVisible()
         self.overlay.setVisible(visible)
         self.tray_icon.set_visible_state(visible)
@@ -171,6 +204,20 @@ class AppController(QObject):
         self.tray_icon.set_accent_color(color)
         QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("accent/color", color)
 
+    def _save_scale(self, percent: int):
+        self._settings.setValue("overlay/scale", int(percent))
+        self._settings.sync()  # flush now, not just on (possibly abrupt) exit
+
+    def _save_opacity(self, percent: int):
+        self._settings.setValue("overlay/opacity", int(percent))
+        self._settings.sync()
+
+    def _save_position(self):
+        pos = self.overlay.pos()
+        self._settings.setValue("overlay/pos_x", pos.x())
+        self._settings.setValue("overlay/pos_y", pos.y())
+        self._settings.sync()
+
     def _on_acrylic_toggled(self, enabled: bool):
         self.overlay.set_acrylic(enabled)
         self.control_bar.set_acrylic(enabled)
@@ -182,6 +229,10 @@ class AppController(QObject):
             self.control_bar.follow(self.overlay.geometry())
 
     def _on_track_changed(self, now_playing: NowPlaying):
+        if self._auto_show_pending:
+            self._auto_show_pending = False
+            self.overlay.show()
+            self.tray_icon.set_visible_state(True)
         self.current_now_playing = now_playing
         self.current_lyrics = None
         self.position_tracker.update(now_playing.position_ms, now_playing.is_playing, now_playing.duration_ms)
@@ -190,6 +241,12 @@ class AppController(QObject):
         self.control_bar.set_playing(now_playing.is_playing)
         self.lyrics_fetcher.request(
             now_playing.title, now_playing.artist, now_playing.duration_ms
+        )
+        # Best-effort: pre-cache the next queued song's lyrics so it's ready
+        # instantly when this one ends (needs Spotify connected with the
+        # playback scope; silently does nothing otherwise).
+        self.upcoming_precacher.peek_and_cache(
+            self.settings_window.client_id_edit.text().strip()
         )
 
     def _on_state_updated(self, now_playing: NowPlaying):
@@ -233,7 +290,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     controller = AppController()
-    controller.start()
+    controller.start(hidden="--hidden" in sys.argv)
 
     sys.exit(app.exec())
 

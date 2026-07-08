@@ -158,6 +158,7 @@ class SettingsWindow(QWidget):
     accent_color_changed = Signal(QColor)
     clear_cache_requested = Signal()
     precache_requested = Signal(str, str)  # client_id, playlist_url
+    startup_toggled = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -198,6 +199,7 @@ class SettingsWindow(QWidget):
                 DEFAULT_SCALE_PERCENT,
                 self.size_value_label,
                 self._on_scale_changed,
+                slider_attr="_size_slider",
             )
         )
 
@@ -210,6 +212,7 @@ class SettingsWindow(QWidget):
                 DEFAULT_OPACITY_PERCENT,
                 self.opacity_value_label,
                 self._on_opacity_changed,
+                slider_attr="_opacity_slider",
             )
         )
 
@@ -220,6 +223,10 @@ class SettingsWindow(QWidget):
         self.controls_checkbox = QCheckBox("Show playback controls")
         self.controls_checkbox.toggled.connect(self.controls_toggled)
         layout.addWidget(self.controls_checkbox)
+
+        self.startup_checkbox = QCheckBox("Start with Windows")
+        self.startup_checkbox.toggled.connect(self.startup_toggled)
+        layout.addWidget(self.startup_checkbox)
 
         # --- Color pickers ---
         layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
@@ -359,7 +366,7 @@ class SettingsWindow(QWidget):
         self.style().unpolish(self)
         self.style().polish(self)
 
-    def _make_slider_row(self, name, minimum, maximum, default, value_label, on_change):
+    def _make_slider_row(self, name, minimum, maximum, default, value_label, on_change, slider_attr=None):
         row = QHBoxLayout()
         row.setSpacing(10)
         name_label = QLabel(name)
@@ -373,7 +380,24 @@ class SettingsWindow(QWidget):
         row.addWidget(name_label)
         row.addWidget(slider)
         row.addWidget(value_label)
+        if slider_attr:
+            setattr(self, slider_attr, slider)
         return row
+
+    def set_startup_checked(self, checked: bool):
+        """Reflect the current 'launch at login' state without re-triggering
+        a registry write."""
+        self.startup_checkbox.blockSignals(True)
+        self.startup_checkbox.setChecked(checked)
+        self.startup_checkbox.blockSignals(False)
+
+    def set_scale_value(self, percent: int):
+        """Set the Size slider (used to restore the saved size on launch)."""
+        self._size_slider.setValue(percent)
+
+    def set_opacity_value(self, percent: int):
+        """Set the Opacity slider (used to restore the saved opacity)."""
+        self._opacity_slider.setValue(percent)
 
     def _build_precache_section(self, layout):
         heading = QLabel("Pre-cache a playlist")

@@ -111,6 +111,7 @@ class LyricItem(QGraphicsObject):
 
 class OverlayWindow(QWidget):
     geometry_changed = Signal()
+    drag_finished = Signal()  # emitted when the user finishes dragging the overlay
 
     def __init__(self):
         super().__init__()
@@ -176,8 +177,11 @@ class OverlayWindow(QWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent):
+        was_dragging = self._drag_offset is not None
         self._drag_offset = None
         event.accept()
+        if was_dragging:
+            self.drag_finished.emit()
 
     def moveEvent(self, event):
         super().moveEvent(event)
