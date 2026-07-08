@@ -102,6 +102,7 @@ class AppController(QObject):
         self.settings_window.opacity_changed.connect(self.overlay.set_opacity)
         self.settings_window.opacity_changed.connect(self.control_bar.set_opacity)
         self.settings_window.controls_toggled.connect(self._toggle_control_bar)
+        self.settings_window.acrylic_toggled.connect(self._on_acrylic_toggled)
         self.settings_window.clear_cache_requested.connect(self.lyrics_fetcher.clear_cache)
         self.settings_window.precache_requested.connect(self.precacher.start)
 
@@ -155,6 +156,10 @@ class AppController(QObject):
 
         self.settings_window.set_startup_checked(startup.is_enabled())
         self.settings_window.startup_toggled.connect(startup.set_enabled)
+
+        acrylic = settings.value("window/acrylic", False, type=bool)
+        self.settings_window.acrylic_checkbox.setChecked(acrylic)
+        self._on_acrylic_toggled(acrylic)
 
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
@@ -238,6 +243,12 @@ class AppController(QObject):
         self._settings.setValue("overlay/pos_x", pos.x())
         self._settings.setValue("overlay/pos_y", pos.y())
         self._settings.sync()
+
+    def _on_acrylic_toggled(self, enabled: bool):
+        self.overlay.set_acrylic(enabled)
+        self.control_bar.set_acrylic(enabled)
+        self.settings_window.set_acrylic(enabled)
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("window/acrylic", enabled)
 
     def _sync_control_bar_position(self):
         if self.control_bar.isVisible():

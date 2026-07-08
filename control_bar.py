@@ -10,6 +10,7 @@ these controls must accept clicks.
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from win32_effect import remove_background_effect, set_acrylic_effect
 
 _BASE_BUTTON_SIZE = 30
 _BASE_ICON_SIZE = 12
@@ -122,6 +123,7 @@ class ControlBar(QWidget):
         self._accent_color = QColor("#1DB954")
         self._bg_color = QColor(18, 18, 18)
         self._fg_color = QColor(255, 255, 255)
+        self._acrylic_enabled = False
 
         self._build_ui()
         self.set_opacity(self._opacity_percent)
@@ -266,3 +268,18 @@ class ControlBar(QWidget):
         if self.width() != overlay_geometry.width():
             self.resize(overlay_geometry.width(), self.card.sizeHint().height())
         self.move(overlay_geometry.x(), overlay_geometry.y() + overlay_geometry.height())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._acrylic_enabled:
+            set_acrylic_effect(int(self.winId()))
+
+    def set_acrylic(self, enabled: bool):
+        self._acrylic_enabled = enabled
+        if not self.isVisible():
+            return
+        hwnd = int(self.winId())
+        if enabled:
+            set_acrylic_effect(hwnd)
+        else:
+            remove_background_effect(hwnd)
