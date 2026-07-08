@@ -16,10 +16,43 @@ no Python install needed. Windows may show a SmartScreen warning for an
 unsigned exe the first time; click "More info" -> "Run anyway".
 
 ## Pre-caching playlists
-Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), then follow the instructions below:
- - Click on create app
- - App name and description does not matter, just make sure you fill in `http://127.0.0.1:8888/callback` in Redirect URLs
- - After filling in the URL, copy the CLIENT ID on top and fill it into 
+
+Normally lyrics are fetched the first time each song plays. Pre-caching
+downloads the lyrics for every track in a Spotify playlist ahead of time, so
+they appear instantly (and work offline) when you later play those songs.
+
+This is the only feature that needs a (free) Spotify Client ID — used purely
+to read a playlist's track list. No client secret is stored in the app; it
+uses Spotify's PKCE login flow, so a one-time browser sign-in is all that's
+required.
+
+### 1. Create a Spotify app to get a Client ID
+
+Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and:
+ - Click **Create app**.
+ - Give it any name and description (these don't matter).
+ - Set the **Redirect URI** to exactly `http://127.0.0.1:8888/callback`.
+ - Under "Which API/SDKs are you planning to use?", tick **Web API**.
+ - Save, then open the app's **Settings** and copy the **Client ID**.
+
+### 2. Pre-cache a playlist in the app
+
+ - Open the tray menu (the green "L" icon) and choose **Settings...**.
+ - Scroll to the **Pre-cache a playlist** section.
+ - Paste your **Client ID** into the "Spotify Client ID" box (it's remembered
+   for next time).
+ - Paste a **playlist link** (e.g. `https://open.spotify.com/playlist/...`)
+   into the "Playlist link" box.
+ - Click **Pre-cache lyrics**.
+
+The first time, a browser window opens asking you to log in and authorize the
+app — a one-time step so it can read your playlists. Progress is shown under
+the button, and when it finishes you'll see how many lyrics were added, were
+already cached, or couldn't be found.
+
+You can pre-cache any public playlist, plus your own private and collaborative
+playlists once you're signed in. (Spotify's API doesn't allow reading other
+people's private playlists, so those must be public to be pre-cached.)
 
 ## Setup (running from source)
 
