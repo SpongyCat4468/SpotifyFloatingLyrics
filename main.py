@@ -41,6 +41,8 @@ from precache_worker import PlaylistPrecacher, UpcomingPrecacher
 from settings_window import SettingsWindow
 from tray_icon import TrayIcon
 import startup
+import i18n
+from i18n import tr
 
 
 def _spread_evenly(result: LyricsResult, duration_ms: int) -> LyricsResult:
@@ -104,6 +106,8 @@ class AppController(QObject):
         self.settings_window.controls_toggled.connect(self._toggle_control_bar)
         self.settings_window.acrylic_toggled.connect(self._on_acrylic_toggled)
         self.settings_window.lyrics_only_toggled.connect(self._on_lyrics_only_toggled)
+        self.settings_window.single_line_toggled.connect(self._on_single_line_toggled)
+        self.settings_window.language_changed.connect(self._on_language_changed)
         self.settings_window.clear_cache_requested.connect(self.lyrics_fetcher.clear_cache)
         self.settings_window.precache_requested.connect(self.precacher.start)
 
@@ -165,6 +169,10 @@ class AppController(QObject):
         lyrics_only = settings.value("window/lyrics_only", False, type=bool)
         self.settings_window.lyrics_only_checkbox.setChecked(lyrics_only)
         self._on_lyrics_only_toggled(lyrics_only)
+
+        single_line = settings.value("window/single_line", False, type=bool)
+        self.settings_window.single_line_checkbox.setChecked(single_line)
+        self._on_single_line_toggled(single_line)
 
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
@@ -259,6 +267,15 @@ class AppController(QObject):
         self.overlay.set_lyrics_only(enabled)
         QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("window/lyrics_only", enabled)
 
+    def _on_single_line_toggled(self, enabled: bool):
+        self.overlay.set_single_line(enabled)
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("window/single_line", enabled)
+
+    def _on_language_changed(self, code: str):
+        # Persisted and read back at startup; existing menus/labels update on
+        # the next launch (the settings panel shows a restart reminder).
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("language", code)
+
     def _sync_control_bar_position(self):
         if self.control_bar.isVisible():
             self.control_bar.follow(self.overlay.geometry())
@@ -296,7 +313,7 @@ class AppController(QObject):
     def _on_no_session(self):
         self.current_now_playing = None
         self.current_lyrics = None
-        self.overlay.show_idle("Waiting for Spotify...")
+        self.overlay.show_idle(tr("Waiting for Spotify..."))
         self.overlay.set_dimmed(False)
         # Arm the auto-hide once per idle stretch, and only while the overlay
         # is actually showing (never fight a manual hide or a hidden launch).
@@ -329,7 +346,7 @@ class AppController(QObject):
         self.tray_icon.set_visible_state(False)
 
     def _on_lyrics_loading(self, _title, _artist):
-        self.overlay.show_status("Loading lyrics...")
+        self.overlay.show_status(tr("Loading lyrics..."))
 
     def _on_lyrics_ready(self, title, _artist, result: LyricsResult):
         if self.current_now_playing and self.current_now_playing.title == title:
@@ -341,7 +358,7 @@ class AppController(QObject):
 
     def _on_lyrics_failed(self, title, _artist):
         if self.current_now_playing and self.current_now_playing.title == title:
-            self.overlay.show_status("No lyrics found")
+            self.overlay.show_status(tr("No lyrics found"))
 
     def _tick(self):
         if self.current_now_playing is None:
@@ -360,6 +377,11 @@ def main():
     # Hiding the overlay via the tray toggle must not quit the app - only
     # the tray menu's Exit action should.
     app.setQuitOnLastWindowClosed(False)
+
+    # Apply the saved UI language before any window is built, so menus and
+    # labels come up translated.
+    saved_language = QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").value("language", "en")
+    i18n.set_language(saved_language)
 
     controller = AppController()
     controller.start(hidden="--hidden" in sys.argv)

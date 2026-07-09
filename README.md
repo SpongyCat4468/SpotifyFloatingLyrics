@@ -57,6 +57,10 @@ apply live:
 - **Acrylic effect (Win10+)** — an optional frosted-glass blur behind the
   overlay.
 - **Lyrics only (no background)** — hides the panel so only the text floats.
+- **Single line (one lyric at a time)** — shows just the current lyric instead
+  of the dimmed previous/next lines above and below it.
+- **Language** — switch the interface between **English** and **繁體中文**
+  (restart the app to apply).
 - **Show playback controls** — adds a Spotify-styled prev / play-pause / next
   strip with a seekable progress bar, attached to the bottom of the overlay.
   The strip stays clickable even though the lyrics remain click-through.

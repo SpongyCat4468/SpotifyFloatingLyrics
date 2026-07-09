@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QFont, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QColorDialog
 )
+from i18n import LANGUAGES, language, tr
 from overlay import (
     DEFAULT_OPACITY_PERCENT,
     DEFAULT_SCALE_PERCENT,
@@ -160,12 +162,14 @@ class SettingsWindow(QWidget):
     controls_toggled = Signal(bool)
     acrylic_toggled = Signal(bool)
     lyrics_only_toggled = Signal(bool)
+    single_line_toggled = Signal(bool)
     lyrics_color_changed = Signal(QColor)
     bg_color_changed = Signal(QColor)
     accent_color_changed = Signal(QColor)
     clear_cache_requested = Signal()
     precache_requested = Signal(str, str)  # client_id, playlist_url
     startup_toggled = Signal(bool)
+    language_changed = Signal(str)  # language code
 
     def __init__(self):
         super().__init__()
@@ -193,14 +197,14 @@ class SettingsWindow(QWidget):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(16)
 
-        title = QLabel("Settings")
+        title = QLabel(tr("Settings"))
         title.setFont(QFont("Segoe UI", 12, QFont.Bold))
         layout.addWidget(title)
 
         self.size_value_label = QLabel()
         layout.addLayout(
             self._make_slider_row(
-                "Size",
+                tr("Size"),
                 MIN_SCALE_PERCENT,
                 MAX_SCALE_PERCENT,
                 DEFAULT_SCALE_PERCENT,
@@ -213,7 +217,7 @@ class SettingsWindow(QWidget):
         self.opacity_value_label = QLabel()
         layout.addLayout(
             self._make_slider_row(
-                "Opacity",
+                tr("Opacity"),
                 MIN_OPACITY_PERCENT,
                 MAX_OPACITY_PERCENT,
                 DEFAULT_OPACITY_PERCENT,
@@ -223,30 +227,42 @@ class SettingsWindow(QWidget):
             )
         )
 
-        self.acrylic_checkbox = QCheckBox("Acrylic effect (Win10+)")
+        self.acrylic_checkbox = QCheckBox(tr("Acrylic effect (Win10+)"))
         self.acrylic_checkbox.toggled.connect(self.acrylic_toggled)
         layout.addWidget(self.acrylic_checkbox)
 
-        self.lyrics_only_checkbox = QCheckBox("Lyrics only (no background)")
+        self.lyrics_only_checkbox = QCheckBox(tr("Lyrics only (no background)"))
         self.lyrics_only_checkbox.toggled.connect(self.lyrics_only_toggled)
         layout.addWidget(self.lyrics_only_checkbox)
 
-        self.controls_checkbox = QCheckBox("Show playback controls")
+        self.single_line_checkbox = QCheckBox(tr("Single line (one lyric at a time)"))
+        self.single_line_checkbox.toggled.connect(self.single_line_toggled)
+        layout.addWidget(self.single_line_checkbox)
+
+        self.controls_checkbox = QCheckBox(tr("Show playback controls"))
         self.controls_checkbox.toggled.connect(self.controls_toggled)
         layout.addWidget(self.controls_checkbox)
 
-        self.startup_checkbox = QCheckBox("Start with Windows")
+        self.startup_checkbox = QCheckBox(tr("Start with Windows"))
         self.startup_checkbox.toggled.connect(self.startup_toggled)
         layout.addWidget(self.startup_checkbox)
+
+        # --- Language ---
+        layout.addLayout(self._make_language_row())
+        self.language_note = QLabel("")
+        self.language_note.setWordWrap(True)
+        self.language_note.setStyleSheet("color: rgba(255,255,255,120);")
+        self.language_note.setFont(QFont("Segoe UI", 8))
+        layout.addWidget(self.language_note)
 
         # --- Theme presets ---
         layout.addLayout(self._make_theme_row())
 
         # --- Color pickers ---
-        layout.addLayout(self._make_color_row("Lyrics Color", self._lyrics_color, "lyrics"))
-        layout.addLayout(self._make_color_row("Background", self._bg_color, "bg"))
-        layout.addLayout(self._make_color_row("UI Accent", self._accent_color, "accent"))
-        self.clear_cache_button = QPushButton("Clear lyrics cache")
+        layout.addLayout(self._make_color_row(tr("Lyrics Color"), self._lyrics_color, "lyrics"))
+        layout.addLayout(self._make_color_row(tr("Background"), self._bg_color, "bg"))
+        layout.addLayout(self._make_color_row(tr("UI Accent"), self._accent_color, "accent"))
+        self.clear_cache_button = QPushButton(tr("Clear lyrics cache"))
         self.clear_cache_button.setObjectName("clearcache")
         self.clear_cache_button.setCursor(Qt.PointingHandCursor)
         self.clear_cache_button.clicked.connect(self._confirm_clear_cache)
@@ -292,16 +308,16 @@ class SettingsWindow(QWidget):
         row = QHBoxLayout()
         row.setSpacing(10)
 
-        label = QLabel("Theme")
+        label = QLabel(tr("Theme"))
         label.setFixedWidth(70)
         row.addWidget(label)
 
-        dark_btn = QPushButton("Dark")
+        dark_btn = QPushButton(tr("Dark"))
         dark_btn.setObjectName("preset")
         dark_btn.setCursor(Qt.PointingHandCursor)
         dark_btn.clicked.connect(lambda: self._apply_theme(_DARK_THEME))
 
-        light_btn = QPushButton("Light")
+        light_btn = QPushButton(tr("Light"))
         light_btn.setObjectName("preset")
         light_btn.setCursor(Qt.PointingHandCursor)
         light_btn.clicked.connect(lambda: self._apply_theme(_LIGHT_THEME))
@@ -311,9 +327,40 @@ class SettingsWindow(QWidget):
         row.addStretch()
         return row
 
+    def _make_language_row(self):
+        row = QHBoxLayout()
+        row.setSpacing(10)
+
+        label = QLabel(tr("Language"))
+        label.setFixedWidth(70)
+        row.addWidget(label)
+
+        self.language_combo = QComboBox()
+        for code, name in LANGUAGES.items():
+            self.language_combo.addItem(name, code)
+        current = self.language_combo.findData(language())
+        if current >= 0:
+            self.language_combo.setCurrentIndex(current)
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        row.addWidget(self.language_combo)
+        row.addStretch()
+        return row
+
+    def _on_language_changed(self, _index: int):
+        # Menus and labels are built once, so the change applies on the next
+        # launch. Show a bilingual reminder (readable whichever language is
+        # currently displayed).
+        self.language_note.setText("Restart to apply · 重新啟動以套用")
+        self.language_changed.emit(self.language_combo.currentData())
+
     def _pick_color(self, target: str):
         current = getattr(self, f"_{target}_color")
-        color = QColorDialog.getColor(current, self, f"Choose {target.title()} Color")
+        titles = {
+            "lyrics": tr("Lyrics Color"),
+            "bg": tr("Background"),
+            "accent": tr("UI Accent"),
+        }
+        color = QColorDialog.getColor(current, self, titles.get(target, tr("Settings")))
         if not color.isValid():
             return
         self._apply_color(target, color)
@@ -406,6 +453,27 @@ class SettingsWindow(QWidget):
             QPushButton#preset:hover {{
                 background-color: rgba(255,255,255,32);
             }}
+            QComboBox {{
+                background-color: rgba(255,255,255,15);
+                color: white;
+                border: 1px solid rgba(255,255,255,40);
+                border-radius: 6px;
+                padding: 4px 8px;
+            }}
+            QComboBox:hover {{
+                border: 1px solid {accent};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 18px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: #1e1e1e;
+                color: white;
+                border: 1px solid rgba(255,255,255,40);
+                selection-background-color: {accent};
+                outline: none;
+            }}
             """
         )
 
@@ -457,14 +525,16 @@ class SettingsWindow(QWidget):
         self._opacity_slider.setValue(percent)
 
     def _build_precache_section(self, layout):
-        heading = QLabel("Pre-cache a playlist")
+        heading = QLabel(tr("Pre-cache a playlist"))
         heading.setFont(QFont("Segoe UI", 10, QFont.Bold))
         layout.addWidget(heading)
 
         hint = QLabel(
-            "Downloads lyrics for every song in a Spotify playlist ahead of "
-            "time. Needs a free Spotify Client ID (Developer Dashboard) with "
-            "redirect URI http://127.0.0.1:8888/callback."
+            tr(
+                "Downloads lyrics for every song in a Spotify playlist ahead of "
+                "time. Needs a free Spotify Client ID (Developer Dashboard) with "
+                "redirect URI http://127.0.0.1:8888/callback."
+            )
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: rgba(255,255,255,120);")
@@ -477,10 +547,10 @@ class SettingsWindow(QWidget):
         layout.addWidget(self.client_id_edit)
 
         self.playlist_edit = QLineEdit()
-        self.playlist_edit.setPlaceholderText("Playlist link")
+        self.playlist_edit.setPlaceholderText(tr("Playlist link"))
         layout.addWidget(self.playlist_edit)
 
-        self.precache_button = QPushButton("Pre-cache lyrics")
+        self.precache_button = QPushButton(tr("Pre-cache lyrics"))
         self.precache_button.setObjectName("precache")
         self.precache_button.setCursor(Qt.PointingHandCursor)
         self.precache_button.clicked.connect(self._on_precache_clicked)
@@ -496,14 +566,14 @@ class SettingsWindow(QWidget):
         client_id = self.client_id_edit.text().strip()
         playlist = self.playlist_edit.text().strip()
         if not client_id:
-            self.precache_status.setText("Enter your Spotify Client ID first.")
+            self.precache_status.setText(tr("Enter your Spotify Client ID first."))
             return
         if not playlist:
-            self.precache_status.setText("Paste a playlist link first.")
+            self.precache_status.setText(tr("Paste a playlist link first."))
             return
         _save_config({"client_id": client_id})
         self.precache_button.setEnabled(False)
-        self.precache_status.setText("Starting…")
+        self.precache_status.setText(tr("Starting…"))
         self.precache_requested.emit(client_id, playlist)
 
     # --- called by the controller as the background pre-cache progresses ---
@@ -516,7 +586,9 @@ class SettingsWindow(QWidget):
     def set_precache_finished(self, saved: int, cached: int, failed: int):
         self.precache_button.setEnabled(True)
         self.precache_status.setText(
-            f"Done — {saved} added, {cached} already cached, {failed} not found"
+            tr("Done — {saved} added, {cached} already cached, {failed} not found").format(
+                saved=saved, cached=cached, failed=failed
+            )
         )
 
     def set_precache_error(self, message: str):
@@ -534,22 +606,24 @@ class SettingsWindow(QWidget):
     def _confirm_clear_cache(self):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Clear lyrics cache")
-        box.setText("Delete all cached lyrics?")
+        box.setWindowTitle(tr("Clear lyrics cache"))
+        box.setText(tr("Delete all cached lyrics?"))
         box.setInformativeText(
-            "Saved lyrics will be removed and re-downloaded the next time "
-            "each song plays."
+            tr(
+                "Saved lyrics will be removed and re-downloaded the next time "
+                "each song plays."
+            )
         )
         box.setStyleSheet(_CONFIRM_STYLE)
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         box.setDefaultButton(QMessageBox.No)
-        box.button(QMessageBox.Yes).setText("Delete")
-        box.button(QMessageBox.No).setText("Cancel")
+        box.button(QMessageBox.Yes).setText(tr("Delete"))
+        box.button(QMessageBox.No).setText(tr("Cancel"))
         if box.exec() == QMessageBox.Yes:
             self.clear_cache_requested.emit()
-            self.clear_cache_button.setText("Cache cleared ✓")
+            self.clear_cache_button.setText(tr("Cache cleared ✓"))
             QTimer.singleShot(
-                2000, lambda: self.clear_cache_button.setText("Clear lyrics cache")
+                2000, lambda: self.clear_cache_button.setText(tr("Clear lyrics cache"))
             )
 
     def resizeEvent(self, event):

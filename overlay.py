@@ -8,6 +8,7 @@ import ctypes
 from typing import Optional
 
 from win32_effect import color_gradient, remove_background_effect, set_acrylic_effect
+from i18n import tr
 
 from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QMouseEvent, QPainter
@@ -131,6 +132,7 @@ class OverlayWindow(QWidget):
         self._bg_color = QColor(18, 18, 18)
         self._acrylic_enabled = False
         self._lyrics_only = False  # transparent background, text only
+        self._single_line = False  # show only the current lyric line
         self._build_ui()
         self.set_opacity(DEFAULT_OPACITY_PERCENT)
         self.set_scale(DEFAULT_SCALE_PERCENT)
@@ -183,6 +185,13 @@ class OverlayWindow(QWidget):
         else:
             set_acrylic_effect(hwnd, self._acrylic_gradient())
 
+    def set_single_line(self, enabled: bool):
+        # Show only the current lyric line (no dimmed prev/next). Rebuilds the
+        # geometry for the new row count and re-lays the current line; line
+        # changes then swap in place instead of running the 3-row scroll.
+        self._single_line = enabled
+        self.set_scale(self._scale_percent)
+
     def set_movable(self, movable: bool):
         self._click_through = not movable
         self.setAttribute(Qt.WA_TransparentForMouseEvents, self._click_through)
@@ -217,7 +226,7 @@ class OverlayWindow(QWidget):
 
         self._card_layout = QVBoxLayout(self.card)
 
-        self.title_label = QLabel("Waiting for Spotify...")
+        self.title_label = QLabel(tr("Waiting for Spotify..."))
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setStyleSheet("color: rgba(255,255,255,140);")
         self._card_layout.addWidget(self.title_label)
@@ -225,7 +234,7 @@ class OverlayWindow(QWidget):
         # A yellow "unsynced" badge pinned to the top-right corner, shown only
         # when the lyrics are plain text spread evenly across the track (see
         # set_approximate) so the rough timing is clearly flagged.
-        self.unsynced_label = QLabel("unsynced", self.card)
+        self.unsynced_label = QLabel(tr("unsynced"), self.card)
         self.unsynced_label.setObjectName("unsynced")
         self.unsynced_label.setAlignment(Qt.AlignCenter)
         self.unsynced_label.hide()
@@ -297,8 +306,15 @@ class OverlayWindow(QWidget):
         for item in self._items:
             item.setItemGeometry(self._row_width, self._row_height)
 
-        self._view.setFixedHeight(self._row_height * 3)
-        self._scene.setSceneRect(0, 0, self._row_width, self._row_height * 3)
+        # Single-line mode shows just the current row; the prev/next items stay
+        # positioned in the 3-row scene but the view is cropped to the middle
+        # band (where the current line sits) so they're clipped out of sight.
+        visible_rows = 1 if self._single_line else 3
+        self._view.setFixedHeight(self._row_height * visible_rows)
+        if self._single_line:
+            self._scene.setSceneRect(0, self._row_height, self._row_width, self._row_height)
+        else:
+            self._scene.setSceneRect(0, 0, self._row_width, self._row_height * 3)
 
         height = (
             v_margin * 2
@@ -401,7 +417,10 @@ class OverlayWindow(QWidget):
         for i, item in enumerate(self._items[:3]):
             item.setPos(QPointF(cx, centers_y[i]))
             item.setScale(self._rest_scale.get(i, _DIM_SCALE))
-            item.setOpacity(self._rest_opacity.get(i, _DIM_OPACITY))
+            opacity = self._rest_opacity.get(i, _DIM_OPACITY)
+            if self._single_line and i != 1:
+                opacity = 0.0  # hide prev/next, leaving only the current line
+            item.setOpacity(opacity)
         # incoming sits just below the visible area, hidden.
         self._items[3].setPos(QPointF(cx, self._row_height / 2 + 3 * self._row_height))
         self._items[3].setScale(0.0)
@@ -483,7 +502,7 @@ class OverlayWindow(QWidget):
         advance = index - self._current_index
         prior_index = self._current_index
         self._current_index = index
-        if advance == 1 and prior_index >= 0:
+        if advance == 1 and prior_index >= 0 and not self._single_line:
             self._scroll_to_next()
         else:
             prev_text = self._lines[index - 1][1] if index - 1 >= 0 else ""

@@ -8,6 +8,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
+from i18n import tr
+
 
 class TrayIcon(QSystemTrayIcon):
     toggle_requested = Signal()
@@ -19,27 +21,27 @@ class TrayIcon(QSystemTrayIcon):
     def __init__(self, parent=None):
         self._accent_color = QColor("#1DB954")
         super().__init__(self._make_icon(), parent)
-        self.setToolTip("Spotify Floating Lyrics")
+        self.setToolTip(tr("Spotify Floating Lyrics"))
 
         menu = QMenu()
-        self.toggle_action = menu.addAction("Hide Lyrics")
+        self.toggle_action = menu.addAction(tr("Hide Lyrics"))
         self.toggle_action.triggered.connect(self.toggle_requested)
 
         menu.addSeparator()
-        self.movable_action = menu.addAction("Move Overlay")
+        self.movable_action = menu.addAction(tr("Move Overlay"))
         self.movable_action.setCheckable(True)
         self.movable_action.toggled.connect(self.movable_toggled)
 
         menu.addSeparator()
-        copy_line_action = menu.addAction("Copy current line")
+        copy_line_action = menu.addAction(tr("Copy current line"))
         copy_line_action.triggered.connect(self.copy_line_requested)
 
         menu.addSeparator()
-        settings_action = menu.addAction("Settings...")
+        settings_action = menu.addAction(tr("Settings..."))
         settings_action.triggered.connect(self.settings_requested)
 
         menu.addSeparator()
-        exit_action = menu.addAction("Exit")
+        exit_action = menu.addAction(tr("Exit"))
         exit_action.triggered.connect(self.quit_requested)
         self.setContextMenu(menu)
 
@@ -68,4 +70,4 @@ class TrayIcon(QSystemTrayIcon):
             self.toggle_requested.emit()
 
     def set_visible_state(self, visible: bool):
-        self.toggle_action.setText("Hide Lyrics" if visible else "Show Lyrics")
+        self.toggle_action.setText(tr("Hide Lyrics") if visible else tr("Show Lyrics"))
