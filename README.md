@@ -61,8 +61,9 @@ apply live:
 - **Lyrics only (no background)** — hides the panel so only the text floats.
 - **Single line (one lyric at a time)** — shows just the current lyric instead
   of the dimmed previous/next lines above and below it.
-- **Language** — switch the interface between **English** and **繁體中文**
-  (restart the app to apply).
+- **Language** — switch the interface language (English, 繁體中文, 简体中文,
+  日本語, 한국어, Español, Français, Deutsch, Português, Русский; restart the
+  app to apply).
 - **Show playback controls** — adds a Spotify-styled prev / play-pause / next
   strip with a seekable progress bar, attached to the bottom of the overlay.
   The strip stays clickable even though the lyrics remain click-through.
@@ -201,7 +202,8 @@ access.
 - **壓克力效果 (Win10+)**——在浮動視窗後方選用的毛玻璃模糊效果。
 - **僅顯示歌詞（無背景）**——隱藏面板，只讓文字浮動顯示。
 - **只顯示一行歌詞**——只顯示目前的歌詞，而不顯示上下方較暗的前一行／下一行。
-- **語言**——在 **English** 與 **繁體中文** 之間切換介面（需重新啟動應用程式才會套用）。
+- **語言**——切換介面語言（English、繁體中文、简体中文、日本語、한국어、Español、
+  Français、Deutsch、Português、Русский；需重新啟動應用程式才會套用）。
 - **顯示播放控制列**——在浮動視窗底部加上 Spotify 風格的上一首／播放暫停／下一首
   控制列與可拖曳的進度條。即使歌詞維持點擊穿透，這個控制列仍可點擊。
 - **開機時啟動**——登入時自動啟動應用程式（會安靜地在系統匣中啟動）。

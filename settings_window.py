@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QColorDialog
 )
-from i18n import LANGUAGES, language, tr
+from i18n import LANGUAGES, language, tr, tr_in
 from overlay import (
     DEFAULT_OPACITY_PERCENT,
     DEFAULT_SCALE_PERCENT,
@@ -348,10 +348,10 @@ class SettingsWindow(QWidget):
 
     def _on_language_changed(self, _index: int):
         # Menus and labels are built once, so the change applies on the next
-        # launch. Show a bilingual reminder (readable whichever language is
-        # currently displayed).
-        self.language_note.setText("Restart to apply · 重新啟動以套用")
-        self.language_changed.emit(self.language_combo.currentData())
+        # launch. Show the reminder in the language the user just picked.
+        code = self.language_combo.currentData()
+        self.language_note.setText(tr_in(code, "Restart the app to apply the language change."))
+        self.language_changed.emit(code)
 
     def _pick_color(self, target: str):
         current = getattr(self, f"_{target}_color")
