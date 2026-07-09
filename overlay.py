@@ -453,16 +453,21 @@ class OverlayWindow(QWidget):
             self._position_unsynced_badge()
 
     def set_dimmed(self, dimmed: bool):
-        # Fade the whole overlay while playback is paused so it recedes
-        # visually without disappearing. Applied on top of the card's own
-        # background opacity via the window's global alpha. Guarded: changing
-        # window opacity forces the compositor to recomposite this layered
-        # window, so only touch it when the state actually flips (this is
-        # called on every ~0.5s poll).
         if dimmed == self._dimmed:
             return
         self._dimmed = dimmed
-        self.setWindowOpacity(0.55 if dimmed else 1.0)
+        if self._acrylic_enabled:
+            # Same mechanism as the opacity slider: adjust the card
+            # background alpha via stylesheet instead of setWindowOpacity,
+            # which calls SetLayeredWindowAttributes and breaks DWM
+            # acrylic composition.
+            if dimmed:
+                self._pre_dim_opacity = self._opacity_percent
+                self.set_opacity(round(self._opacity_percent * 0.55))
+            else:
+                self.set_opacity(self._pre_dim_opacity)
+        else:
+            self.setWindowOpacity(0.55 if dimmed else 1.0)
 
     def current_line_text(self) -> str:
         # The lyric line currently highlighted, or "" when there's nothing to
