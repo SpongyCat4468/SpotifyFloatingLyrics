@@ -37,7 +37,7 @@ DEFAULT_SCALE_PERCENT = 100
 DEFAULT_OPACITY_PERCENT = 75
 MIN_SCALE_PERCENT = 60
 MAX_SCALE_PERCENT = 160
-MIN_OPACITY_PERCENT = 20
+MIN_OPACITY_PERCENT = 1
 MAX_OPACITY_PERCENT = 100
 
 # Qt.WA_TransparentForMouseEvents alone doesn't reliably translate to the
@@ -130,6 +130,7 @@ class OverlayWindow(QWidget):
         self._lyrics_color = QColor(Qt.white)
         self._bg_color = QColor(18, 18, 18)
         self._acrylic_enabled = False
+        self._lyrics_only = False  # transparent background, text only
         self._build_ui()
         self.set_opacity(DEFAULT_OPACITY_PERCENT)
         self.set_scale(DEFAULT_SCALE_PERCENT)
@@ -147,7 +148,7 @@ class OverlayWindow(QWidget):
         # call below can target a real HWND.
         hwnd = int(self.winId())
         _set_native_click_through(hwnd, self._click_through)
-        if self._acrylic_enabled:
+        if self._acrylic_enabled and not self._lyrics_only:
             set_acrylic_effect(hwnd, self._acrylic_gradient())
 
     def _acrylic_gradient(self) -> str:
@@ -162,10 +163,25 @@ class OverlayWindow(QWidget):
         if not self.isVisible():
             return
         hwnd = int(self.winId())
-        if enabled:
+        if enabled and not self._lyrics_only:
             set_acrylic_effect(hwnd, self._acrylic_gradient())
         else:
             remove_background_effect(hwnd)
+
+    def set_lyrics_only(self, enabled: bool):
+        # "Lyrics only": drop the card background to fully transparent so just
+        # the text floats. Acrylic fills the whole window regardless of the
+        # card alpha, so it must be suppressed here too, otherwise a frosted
+        # rectangle would remain.
+        self._lyrics_only = enabled
+        self.set_opacity(self._opacity_percent)
+        if not self.isVisible():
+            return
+        hwnd = int(self.winId())
+        if enabled or not self._acrylic_enabled:
+            remove_background_effect(hwnd)
+        else:
+            set_acrylic_effect(hwnd, self._acrylic_gradient())
 
     def set_movable(self, movable: bool):
         self._click_through = not movable
@@ -336,12 +352,13 @@ class OverlayWindow(QWidget):
         self._bg_color = color
         self.set_opacity(self._opacity_percent)
         # Keep the acrylic tint in step with a theme/background change.
-        if self._acrylic_enabled and self.isVisible():
+        if self._acrylic_enabled and not self._lyrics_only and self.isVisible():
             set_acrylic_effect(int(self.winId()), self._acrylic_gradient())
 
     def set_opacity(self, percent: int):
         self._opacity_percent = percent
-        alpha = round(255 * percent / 100)
+        # Lyrics-only forces a fully transparent card so only the text shows.
+        alpha = 0 if self._lyrics_only else round(255 * percent / 100)
         bottom_radius = 0 if self._attached else 16
         r, g, b = self._bg_color.red(), self._bg_color.green(), self._bg_color.blue()
         lr, lg, lb = self._lyrics_color.red(), self._lyrics_color.green(), self._lyrics_color.blue()

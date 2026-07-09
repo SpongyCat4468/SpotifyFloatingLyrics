@@ -159,6 +159,7 @@ class SettingsWindow(QWidget):
     opacity_changed = Signal(int)
     controls_toggled = Signal(bool)
     acrylic_toggled = Signal(bool)
+    lyrics_only_toggled = Signal(bool)
     lyrics_color_changed = Signal(QColor)
     bg_color_changed = Signal(QColor)
     accent_color_changed = Signal(QColor)
@@ -225,6 +226,10 @@ class SettingsWindow(QWidget):
         self.acrylic_checkbox = QCheckBox("Acrylic effect (Win10+)")
         self.acrylic_checkbox.toggled.connect(self.acrylic_toggled)
         layout.addWidget(self.acrylic_checkbox)
+
+        self.lyrics_only_checkbox = QCheckBox("Lyrics only (no background)")
+        self.lyrics_only_checkbox.toggled.connect(self.lyrics_only_toggled)
+        layout.addWidget(self.lyrics_only_checkbox)
 
         self.controls_checkbox = QCheckBox("Show playback controls")
         self.controls_checkbox.toggled.connect(self.controls_toggled)

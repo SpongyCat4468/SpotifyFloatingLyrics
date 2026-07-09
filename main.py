@@ -103,6 +103,7 @@ class AppController(QObject):
         self.settings_window.opacity_changed.connect(self.control_bar.set_opacity)
         self.settings_window.controls_toggled.connect(self._toggle_control_bar)
         self.settings_window.acrylic_toggled.connect(self._on_acrylic_toggled)
+        self.settings_window.lyrics_only_toggled.connect(self._on_lyrics_only_toggled)
         self.settings_window.clear_cache_requested.connect(self.lyrics_fetcher.clear_cache)
         self.settings_window.precache_requested.connect(self.precacher.start)
 
@@ -160,6 +161,10 @@ class AppController(QObject):
         acrylic = settings.value("window/acrylic", False, type=bool)
         self.settings_window.acrylic_checkbox.setChecked(acrylic)
         self._on_acrylic_toggled(acrylic)
+
+        lyrics_only = settings.value("window/lyrics_only", False, type=bool)
+        self.settings_window.lyrics_only_checkbox.setChecked(lyrics_only)
+        self._on_lyrics_only_toggled(lyrics_only)
 
         self.overlay.geometry_changed.connect(self._sync_control_bar_position)
 
@@ -249,6 +254,10 @@ class AppController(QObject):
         self.control_bar.set_acrylic(enabled)
         self.settings_window.set_acrylic(enabled)
         QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("window/acrylic", enabled)
+
+    def _on_lyrics_only_toggled(self, enabled: bool):
+        self.overlay.set_lyrics_only(enabled)
+        QSettings("SpotifyFloatingLyrics", "SpotifyFloatingLyrics").setValue("window/lyrics_only", enabled)
 
     def _sync_control_bar_position(self):
         if self.control_bar.isVisible():
