@@ -80,6 +80,15 @@ def set_acrylic_effect(
     data.Data = pointer(accent)
 
     _set_comp_attr(hwnd, pointer(data))
+    # Force DWM to re-evaluate the window composition after style changes
+    # (e.g. setStyleSheet resets the visual tree).  SWP_FRAMECHANGED sends
+    # WM_NCCALCSIZE which triggers DWM to apply the new composition.
+    _user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+        0x0020 |  # SWP_FRAMECHANGED
+        0x0001 |  # SWP_NOSIZE
+        0x0002 |  # SWP_NOMOVE
+        0x0004    # SWP_NOZORDER
+    )
 
 
 def remove_background_effect(hwnd: int) -> None:

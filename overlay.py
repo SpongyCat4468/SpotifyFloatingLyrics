@@ -131,6 +131,7 @@ class OverlayWindow(QWidget):
         self._lyrics_color = QColor(Qt.white)
         self._bg_color = QColor(18, 18, 18)
         self._acrylic_enabled = False
+        self._pre_dim_opacity = DEFAULT_OPACITY_PERCENT
         self._lyrics_only = False  # transparent background, text only
         self._single_line = False  # show only the current lyric line
         self._build_ui()
@@ -457,15 +458,16 @@ class OverlayWindow(QWidget):
             return
         self._dimmed = dimmed
         if self._acrylic_enabled:
-            # Same mechanism as the opacity slider: adjust the card
-            # background alpha via stylesheet instead of setWindowOpacity,
-            # which calls SetLayeredWindowAttributes and breaks DWM
-            # acrylic composition.
             if dimmed:
                 self._pre_dim_opacity = self._opacity_percent
                 self.set_opacity(round(self._opacity_percent * 0.55))
             else:
                 self.set_opacity(self._pre_dim_opacity)
+            # set_opacity → setStyleSheet resets DWM composition;
+            # re-apply the blur after every stylesheet change.
+            if self.isVisible():
+                hwnd = int(self.winId())
+                set_acrylic_effect(hwnd, self._acrylic_gradient())
         else:
             self.setWindowOpacity(0.55 if dimmed else 1.0)
 
