@@ -352,6 +352,8 @@ class AppController(QObject):
         if self.current_now_playing and self.current_now_playing.title == title:
             if not result.synced and self.current_now_playing.duration_ms:
                 result = _spread_evenly(result, self.current_now_playing.duration_ms)
+            if result.synced and result.lines and result.lines[0][0] > 0:
+                result.lines.insert(0, (0, "♪")) #(U+266A)
             self.current_lyrics = result
             self.overlay.set_approximate(not result.synced)
             self.overlay.set_lyrics(result)
