@@ -162,6 +162,7 @@ class OverlayWindow(QWidget):
 
     def set_acrylic(self, enabled: bool):
         self._acrylic_enabled = enabled
+        self._apply_opacity_state()
         if not self.isVisible():
             return
         hwnd = int(self.winId())
@@ -373,6 +374,32 @@ class OverlayWindow(QWidget):
 
     def set_opacity(self, percent: int):
         self._opacity_percent = percent
+        self._acrylic_normal_opacity = percent
+        self._acrylic_dimmed_opacity = round(percent * 0.55)
+        self._window_normal_opacity = percent / 100.0
+        self._window_dimmed_opacity = self._window_normal_opacity * 0.55
+        self._apply_opacity_state()
+
+    def _apply_opacity_state(self):
+        if self._acrylic_enabled and not self._lyrics_only:
+            if self.windowOpacity() != 1.0:
+                self.setWindowOpacity(1.0)
+            percent = (
+                self._acrylic_dimmed_opacity
+                if self._dimmed
+                else self._acrylic_normal_opacity
+            )
+            self._set_card_opacity(percent)
+        else:
+            opacity = (
+                self._window_dimmed_opacity
+                if self._dimmed
+                else self._window_normal_opacity
+            )
+            self._set_card_opacity(100)
+            self.setWindowOpacity(opacity)
+
+    def _set_card_opacity(self, percent: int):
         # Lyrics-only forces a fully transparent card so only the text shows.
         alpha = 0 if self._lyrics_only else round(255 * percent / 100)
         bottom_radius = 0 if self._attached else 16
@@ -453,16 +480,10 @@ class OverlayWindow(QWidget):
             self._position_unsynced_badge()
 
     def set_dimmed(self, dimmed: bool):
-        # Fade the whole overlay while playback is paused so it recedes
-        # visually without disappearing. Applied on top of the card's own
-        # background opacity via the window's global alpha. Guarded: changing
-        # window opacity forces the compositor to recomposite this layered
-        # window, so only touch it when the state actually flips (this is
-        # called on every ~0.5s poll).
         if dimmed == self._dimmed:
             return
         self._dimmed = dimmed
-        self.setWindowOpacity(0.55 if dimmed else 1.0)
+        self._apply_opacity_state()
 
     def current_line_text(self) -> str:
         # The lyric line currently highlighted, or "" when there's nothing to

@@ -36,7 +36,7 @@ _set_comp_attr.argtypes = [c_int, POINTER(_WCA_DATA)]
 
 # Default tint opacity for the acrylic layer (the AA in RRGGBBAA). Matches the
 # original hard-coded "12121299".
-ACRYLIC_TINT_ALPHA = 0x99
+ACRYLIC_TINT_ALPHA = 0x00
 
 
 def color_gradient(r: int, g: int, b: int, alpha: int = ACRYLIC_TINT_ALPHA) -> str:
